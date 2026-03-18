@@ -49,9 +49,7 @@ const imageNameOption = Options.text("image-name").pipe(
 
 const CONFIG_DIR = ".sandcastle";
 
-const requireConfigDir = (
-  cwd: string,
-): Effect.Effect<void, SandboxError> =>
+const requireConfigDir = (cwd: string): Effect.Effect<void, SandboxError> =>
   Effect.tryPromise({
     try: () => access(join(cwd, CONFIG_DIR)),
     catch: () =>
@@ -102,9 +100,7 @@ const initCommand = Command.make(
         tokens.ghToken,
       );
 
-      yield* Console.log(
-        `Init complete! Container '${container}' is running.`,
-      );
+      yield* Console.log(`Init complete! Container '${container}' is running.`);
     }),
 );
 
@@ -238,7 +234,7 @@ const syncOutCommand = Command.make(
 
 const iterationsOption = Options.integer("iterations").pipe(
   Options.withDescription("Number of agent iterations to run"),
-  Options.withDefault(5),
+  Options.optional,
 );
 
 const promptFileOption = Options.file("prompt-file").pipe(
@@ -302,10 +298,16 @@ const runCommand = Command.make(
       // Read config
       const config = yield* readConfig(hostRepoDir);
 
+      // Resolve iterations: CLI flag > config > default (5)
+      const resolvedIterations =
+        iterations._tag === "Some"
+          ? iterations.value
+          : (config.defaultIterations ?? 5);
+
       yield* Console.log(`=== SANDCASTLE RUN ===`);
       yield* Console.log(`Repo:       ${repoFullName}`);
       yield* Console.log(`Container:  ${container}`);
-      yield* Console.log(`Iterations: ${iterations}`);
+      yield* Console.log(`Iterations: ${resolvedIterations}`);
       yield* Console.log(``);
 
       const layer = DockerSandbox.layer(container);
@@ -313,7 +315,7 @@ const runCommand = Command.make(
       const result = yield* orchestrate({
         hostRepoDir,
         sandboxRepoDir,
-        iterations,
+        iterations: resolvedIterations,
         config,
         repoFullName,
         prompt,

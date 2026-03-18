@@ -107,15 +107,17 @@ Place a `.sandcastle.json` file in your repo root to configure Sandcastle behavi
 
 ```json
 {
-  "postSyncIn": "npm install"
+  "postSyncIn": "npm install",
+  "defaultIterations": 10
 }
 ```
 
-| Field        | Type   | Description                                                                                                      |
-| ------------ | ------ | ---------------------------------------------------------------------------------------------------------------- |
-| `postSyncIn` | string | Shell command to run inside the sandbox after each sync-in. Use this for dependency installation or build steps. |
+| Field               | Type   | Description                                                                                                                 |
+| ------------------- | ------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `postSyncIn`        | string | Shell command to run inside the sandbox after each sync-in. Use this for dependency installation or build steps.            |
+| `defaultIterations` | number | Default number of agent iterations for `sandcastle run`. Overridden by the `--iterations` CLI flag. Defaults to 5 if unset. |
 
-The config file is optional. If absent, no post-sync commands are run.
+The config file is optional. If absent, defaults are used (no post-sync commands, 5 iterations).
 
 ## How it works
 

@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 export interface SandcastleConfig {
   readonly postSyncIn?: string;
+  readonly defaultIterations?: number;
 }
 
 export const readConfig = (repoDir: string): Effect.Effect<SandcastleConfig> =>
