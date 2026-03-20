@@ -125,7 +125,7 @@ export const syncIn = (
       for (const line of hostRemotes.split("\n")) {
         const match = line.match(/^(\S+)\t(\S+)\s+\(fetch\)$/);
         if (match) {
-          remotes.set(match[1], match[2]);
+          remotes.set(match[1]!, match[2]!);
         }
       }
 
