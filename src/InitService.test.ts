@@ -20,10 +20,7 @@ describe("InitService scaffold", () => {
     const prompt = await readFile(join(configDir, "prompt.md"), "utf-8");
     expect(prompt).toBe(PROMPT);
 
-    const envExample = await readFile(
-      join(configDir, ".env.example"),
-      "utf-8",
-    );
+    const envExample = await readFile(join(configDir, ".env.example"), "utf-8");
     expect(envExample).toContain("CLAUDE_CODE_OAUTH_TOKEN=");
     expect(envExample).toContain("GH_TOKEN=");
 
@@ -38,6 +35,17 @@ describe("InitService scaffold", () => {
     await expect(scaffold(dir)).rejects.toThrow(
       ".sandcastle/ directory already exists",
     );
+  });
+
+  it("includes patches/ in .gitignore", async () => {
+    const dir = await makeDir();
+    await scaffold(dir);
+
+    const gitignore = await readFile(
+      join(dir, ".sandcastle", ".gitignore"),
+      "utf-8",
+    );
+    expect(gitignore).toContain("patches/");
   });
 
   it("does not create config.json", async () => {

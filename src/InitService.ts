@@ -7,6 +7,7 @@ GH_TOKEN=
 `;
 
 const GITIGNORE = `.env
+patches/
 `;
 
 export async function scaffold(repoDir: string): Promise<void> {
