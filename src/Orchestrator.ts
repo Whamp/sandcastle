@@ -182,15 +182,12 @@ export const orchestrate = (
               // Invoke the agent
               const onText = (text: string) =>
                 Effect.runSync(display.text(text));
-              const { result: agentOutput, usage } = yield* display.spinner(
-                "Running agent...",
-                invokeAgent(
-                  ctx.sandbox,
-                  ctx.sandboxRepoDir,
-                  fullPrompt,
-                  resolvedModel,
-                  onText,
-                ),
+              const { result: agentOutput, usage } = yield* invokeAgent(
+                ctx.sandbox,
+                ctx.sandboxRepoDir,
+                fullPrompt,
+                resolvedModel,
+                onText,
               );
 
               // Log usage summary

@@ -1,10 +1,11 @@
-import { Effect } from "effect";
+import { Effect, Layer, Ref } from "effect";
 import { exec } from "node:child_process";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+import { type DisplayEntry, SilentDisplay } from "./Display.js";
 import { FilesystemSandbox } from "./FilesystemSandbox.js";
 import { ExecError } from "./errors.js";
 import { withSandboxLifecycle } from "./SandboxLifecycle.js";
@@ -32,6 +33,10 @@ const getHead = async (dir: string) => {
   const { stdout } = await execAsync("git rev-parse HEAD", { cwd: dir });
   return stdout.trim();
 };
+
+const testDisplayLayer = SilentDisplay.layer(
+  Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]),
+);
 
 const setup = async () => {
   const hostDir = await mkdtemp(join(tmpdir(), "host-"));
@@ -64,7 +69,7 @@ describe("withSandboxLifecycle", () => {
             { cwd: ctx.sandboxRepoDir },
           );
         }),
-      ).pipe(Effect.provide(layer)),
+      ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
     );
 
     // Verify commit synced back to host
@@ -92,7 +97,7 @@ describe("withSandboxLifecycle", () => {
           },
         },
         () => Effect.void,
-      ).pipe(Effect.provide(layer)),
+      ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
     );
 
     const marker = await readFile(markerPath, "utf-8");
@@ -121,7 +126,7 @@ describe("withSandboxLifecycle", () => {
             });
             expect(result.stdout.trim()).toBe("ready");
           }),
-      ).pipe(Effect.provide(layer)),
+      ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
     );
   });
 
@@ -137,7 +142,7 @@ describe("withSandboxLifecycle", () => {
         Effect.gen(function* () {
           expect(ctx.baseHead).toBe(hostHead);
         }),
-      ).pipe(Effect.provide(layer)),
+      ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
     );
   });
 
@@ -149,7 +154,7 @@ describe("withSandboxLifecycle", () => {
     const result = await Effect.runPromise(
       withSandboxLifecycle({ hostRepoDir: hostDir, sandboxRepoDir }, () =>
         Effect.succeed({ complete: true }),
-      ).pipe(Effect.provide(layer)),
+      ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
     );
 
     expect(result).toEqual({ complete: true });
@@ -163,7 +168,7 @@ describe("withSandboxLifecycle", () => {
     const result = await Effect.runPromise(
       withSandboxLifecycle({ hostRepoDir: hostDir, sandboxRepoDir }, () =>
         Effect.succeed("ok"),
-      ).pipe(Effect.provide(layer)),
+      ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
     );
 
     expect(result).toBe("ok");
@@ -190,7 +195,7 @@ describe("withSandboxLifecycle", () => {
             Effect.sync(() => {
               callbackRan = true;
             }),
-        ).pipe(Effect.provide(layer)),
+        ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
       ),
     ).rejects.toThrow();
 
@@ -208,7 +213,7 @@ describe("withSandboxLifecycle", () => {
           Effect.fail(
             new ExecError({ command: "test", message: "callback failed" }),
           ),
-        ).pipe(Effect.provide(layer)),
+        ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
       ),
     ).rejects.toThrow("callback failed");
 
