@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import type { SandcastleConfig } from "./Config.js";
 import { Display } from "./Display.js";
 import { SyncError, type SandboxError } from "./errors.js";
-import { Sandbox, type SandboxService } from "./Sandbox.js";
+import { Sandbox, type SandboxService } from "./SandboxFactory.js";
 import { execOk, syncIn, syncOut } from "./SyncService.js";
 
 const execAsync = promisify(exec);

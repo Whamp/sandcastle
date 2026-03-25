@@ -8,13 +8,13 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { Display, type DisplayEntry, SilentDisplay } from "./Display.js";
-import { FilesystemSandbox } from "./FilesystemSandbox.js";
+import { makeLocalSandboxLayer } from "./testSandbox.js";
 import {
   DEFAULT_MODEL,
   orchestrate,
   parseStreamJsonLine,
 } from "./Orchestrator.js";
-import { Sandbox } from "./Sandbox.js";
+import { Sandbox } from "./SandboxFactory.js";
 import type { DockerError, SandboxError } from "./errors.js";
 import { TimeoutError } from "./errors.js";
 import { SandboxFactory } from "./SandboxFactory.js";
@@ -115,7 +115,7 @@ const makeMockAgentLayer = (
   sandboxDir: string,
   mockAgentBehavior: (sandboxRepoDir: string) => Promise<string>,
 ): Layer.Layer<Sandbox> => {
-  const fsLayer = FilesystemSandbox.layer(sandboxDir);
+  const fsLayer = makeLocalSandboxLayer(sandboxDir);
 
   return Layer.succeed(Sandbox, {
     exec: (command, options) => {
@@ -685,7 +685,7 @@ describe("Orchestrator error handling", () => {
 
     // Layer where agent invocation returns non-zero exit code
     const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory((dir) => {
-      const fsLayer = FilesystemSandbox.layer(dir);
+      const fsLayer = makeLocalSandboxLayer(dir);
       return Layer.succeed(Sandbox, {
         exec: (command, options) =>
           Effect.flatMap(Sandbox, (real) => real.exec(command, options)).pipe(
@@ -736,7 +736,7 @@ describe("Orchestrator error handling", () => {
     // Layer where agent stream emits only assistant lines, no result line.
     // stdout contains the completion signal so the fallback path picks it up.
     const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory((dir) => {
-      const fsLayer = FilesystemSandbox.layer(dir);
+      const fsLayer = makeLocalSandboxLayer(dir);
       return Layer.succeed(Sandbox, {
         exec: (command, options) =>
           Effect.flatMap(Sandbox, (real) => real.exec(command, options)).pipe(
@@ -796,7 +796,7 @@ describe("Orchestrator error handling", () => {
 
     // Layer: iteration 1 succeeds with a commit, iteration 2 agent crashes
     const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory((dir) => {
-      const fsLayer = FilesystemSandbox.layer(dir);
+      const fsLayer = makeLocalSandboxLayer(dir);
       return Layer.succeed(Sandbox, {
         exec: (command, options) =>
           Effect.flatMap(Sandbox, (real) => real.exec(command, options)).pipe(
@@ -897,7 +897,7 @@ describe("Orchestrator error handling", () => {
     let syncDone = false;
 
     const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory((dir) => {
-      const fsLayer = FilesystemSandbox.layer(dir);
+      const fsLayer = makeLocalSandboxLayer(dir);
       return Layer.succeed(Sandbox, {
         exec: (command, options) => {
           // After syncIn, make git rev-parse HEAD fail
@@ -958,7 +958,7 @@ describe("Orchestrator streaming", () => {
     let capturedCommand = "";
 
     const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory((dir) => {
-      const fsLayer = FilesystemSandbox.layer(dir);
+      const fsLayer = makeLocalSandboxLayer(dir);
       return Layer.succeed(Sandbox, {
         exec: (command, options) =>
           Effect.flatMap(Sandbox, (real) => real.exec(command, options)).pipe(
@@ -1044,7 +1044,7 @@ describe("Orchestrator streaming", () => {
     let capturedCommand = "";
 
     const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory((dir) => {
-      const fsLayer = FilesystemSandbox.layer(dir);
+      const fsLayer = makeLocalSandboxLayer(dir);
       return Layer.succeed(Sandbox, {
         exec: (command, options) =>
           Effect.flatMap(Sandbox, (real) => real.exec(command, options)).pipe(
@@ -1100,7 +1100,7 @@ describe("Orchestrator streaming", () => {
     let capturedCommand = "";
 
     const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory((dir) => {
-      const fsLayer = FilesystemSandbox.layer(dir);
+      const fsLayer = makeLocalSandboxLayer(dir);
       return Layer.succeed(Sandbox, {
         exec: (command, options) =>
           Effect.flatMap(Sandbox, (real) => real.exec(command, options)).pipe(
@@ -1160,7 +1160,7 @@ describe("Orchestrator prompt preprocessing", () => {
     let capturedPrompt = "";
 
     const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory((dir) => {
-      const fsLayer = FilesystemSandbox.layer(dir);
+      const fsLayer = makeLocalSandboxLayer(dir);
       return Layer.succeed(Sandbox, {
         exec: (command, options) =>
           Effect.flatMap(Sandbox, (real) => real.exec(command, options)).pipe(
@@ -1227,7 +1227,7 @@ describe("Orchestrator prompt preprocessing", () => {
     // Intercept to capture prompt — use the simpler mock that captures command
     const { factoryLayer: fl2, sandboxRepoDir: sr2 } = makeTestSandboxFactory(
       (dir) => {
-        const fsLayer = FilesystemSandbox.layer(dir);
+        const fsLayer = makeLocalSandboxLayer(dir);
         return Layer.succeed(Sandbox, {
           exec: (command, options) =>
             Effect.flatMap(Sandbox, (real) => real.exec(command, options)).pipe(
@@ -1294,7 +1294,7 @@ describe("Orchestrator Display integration", () => {
 
     // Override toStreamJson to include usage data
     const mockLayer = makeTestSandboxFactory((dir) => {
-      const fsLayer = FilesystemSandbox.layer(dir);
+      const fsLayer = makeLocalSandboxLayer(dir);
       return Layer.succeed(Sandbox, {
         exec: (command, options) =>
           Effect.flatMap(Sandbox, (real) => real.exec(command, options)).pipe(

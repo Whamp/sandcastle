@@ -7,6 +7,7 @@ import { WorktreeError } from "./errors.js";
 vi.mock("node:child_process", () => ({
   execFile: vi.fn(),
   execFileSync: vi.fn(),
+  spawn: vi.fn(),
 }));
 
 vi.mock("./WorktreeManager.js", () => ({

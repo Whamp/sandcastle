@@ -4,9 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { type DisplayEntry, SilentDisplay } from "./Display.js";
-import { FilesystemSandbox } from "./FilesystemSandbox.js";
 import { preprocessPrompt } from "./PromptPreprocessor.js";
-import { Sandbox } from "./Sandbox.js";
+import { Sandbox } from "./SandboxFactory.js";
+import { makeLocalSandboxLayer } from "./testSandbox.js";
 import { PromptError } from "./errors.js";
 
 describe("PromptPreprocessor", () => {
@@ -14,7 +14,7 @@ describe("PromptPreprocessor", () => {
     const sandboxDir = await mkdtemp(join(tmpdir(), "preprocess-test-"));
     const displayRef = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]);
     const layer = Layer.merge(
-      FilesystemSandbox.layer(sandboxDir),
+      makeLocalSandboxLayer(sandboxDir),
       SilentDisplay.layer(displayRef),
     );
     return { sandboxDir, layer, displayRef };

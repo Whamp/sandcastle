@@ -14,12 +14,12 @@ import { join, relative } from "node:path";
 import { type FailedStep, buildRecoveryMessage } from "./RecoveryMessage.js";
 import type { HookDefinition } from "./Config.js";
 import { ExecError, ExecHostError, SyncError } from "./errors.js";
+import { type SandboxError } from "./errors.js";
 import {
   type ExecResult,
   Sandbox,
-  type SandboxError,
   type SandboxService,
-} from "./Sandbox.js";
+} from "./SandboxFactory.js";
 
 const execHost = (
   command: string,

@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { readConfig } from "./Config.js";
-import { FilesystemSandbox } from "./FilesystemSandbox.js";
+import { makeLocalSandboxLayer } from "./testSandbox.js";
 import { runHooks, syncIn, syncOut } from "./SyncService.js";
 
 const execAsync = promisify(exec);
@@ -45,7 +45,7 @@ const setup = async () => {
   const hostDir = await mkdtemp(join(tmpdir(), "host-"));
   const sandboxDir = await mkdtemp(join(tmpdir(), "sandbox-"));
   const sandboxRepoDir = join(sandboxDir, "repo");
-  const layer = FilesystemSandbox.layer(sandboxDir);
+  const layer = makeLocalSandboxLayer(sandboxDir);
   return { hostDir, sandboxDir, sandboxRepoDir, layer };
 };
 
@@ -301,7 +301,7 @@ const initSandboxGit = async (sandboxRepoDir: string) => {
 const syncInAndGetBase = async (
   hostDir: string,
   sandboxRepoDir: string,
-  layer: ReturnType<typeof FilesystemSandbox.layer>,
+  layer: ReturnType<typeof makeLocalSandboxLayer>,
 ) => {
   await Effect.runPromise(
     syncIn(hostDir, sandboxRepoDir).pipe(Effect.provide(layer)),

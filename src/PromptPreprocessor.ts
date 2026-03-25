@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { Display } from "./Display.js";
 import { PromptError } from "./errors.js";
 import type { ExecError } from "./errors.js";
-import type { SandboxService } from "./Sandbox.js";
+import type { SandboxService } from "./SandboxFactory.js";
 
 export const preprocessPrompt = (
   prompt: string,

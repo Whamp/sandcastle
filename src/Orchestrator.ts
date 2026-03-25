@@ -4,7 +4,7 @@ import { Display } from "./Display.js";
 import { preprocessPrompt } from "./PromptPreprocessor.js";
 import { AgentError, TimeoutError } from "./errors.js";
 import type { SandboxError } from "./errors.js";
-import type { SandboxService } from "./Sandbox.js";
+import type { SandboxService } from "./SandboxFactory.js";
 import { SandboxFactory } from "./SandboxFactory.js";
 import { withSandboxLifecycle } from "./SandboxLifecycle.js";
 
