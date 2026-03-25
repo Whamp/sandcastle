@@ -249,7 +249,7 @@ console.log(result.branch); // target branch name
 | `prompt`        | string     | —                       | Inline prompt (mutually exclusive with `promptFile`)   |
 | `promptFile`    | string     | `.sandcastle/prompt.md` | Path to prompt file (mutually exclusive with `prompt`) |
 | `maxIterations` | number     | `5`                     | Maximum iterations to run                              |
-| `hooks`         | object     | —                       | Lifecycle hooks (`onSandboxCreate`, `onSandboxReady`)  |
+| `hooks`         | object     | —                       | Lifecycle hooks (`onSandboxReady`)                     |
 | `branch`        | string     | —                       | Target branch for sandbox work                         |
 | `model`         | string     | `claude-opus-4-6`       | Model to use for the agent                             |
 | `agent`         | string     | `claude-code`           | Agent provider name                                    |
@@ -302,9 +302,6 @@ Place a `.sandcastle/config.json` file to configure advanced behavior:
 {
   "agent": "claude-code",
   "hooks": {
-    "onSandboxCreate": [
-      { "command": "apt-get update && apt-get install -y some-tool" }
-    ],
     "onSandboxReady": [{ "command": "npm install" }]
   },
   "defaultMaxIterations": 10,
@@ -324,12 +321,9 @@ Place a `.sandcastle/config.json` file to configure advanced behavior:
 
 Hooks are arrays of `{ "command": "..." }` objects executed sequentially inside the sandbox. If any command exits with a non-zero code, execution stops immediately with an error.
 
-| Hook              | When it runs                             | Working directory      |
-| ----------------- | ---------------------------------------- | ---------------------- |
-| `onSandboxCreate` | After container creation, before sync-in | Container default      |
-| `onSandboxReady`  | After sync-in completes                  | Sandbox repo directory |
-
-**`onSandboxCreate`** is useful for system-level setup that doesn't depend on repo files (e.g., installing OS packages).
+| Hook             | When it runs            | Working directory      |
+| ---------------- | ----------------------- | ---------------------- |
+| `onSandboxReady` | After sync-in completes | Sandbox repo directory |
 
 **`onSandboxReady`** runs after the repo is synced in. Use it for dependency installation or build steps (e.g., `npm install`).
 

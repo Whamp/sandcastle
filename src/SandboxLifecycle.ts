@@ -39,17 +39,10 @@ export const withSandboxLifecycle = <A>(
     const display = yield* Display;
     const { hostRepoDir, sandboxRepoDir, hooks, branch } = options;
 
-    // Setup: onSandboxCreate hooks, sync-in, onSandboxReady hooks
+    // Setup: sync-in, onSandboxReady hooks
     let resolvedBranch = "";
     yield* display.taskLog("Setting up sandbox", (message) =>
       Effect.gen(function* () {
-        if (hooks?.onSandboxCreate?.length) {
-          for (const hook of hooks.onSandboxCreate) {
-            message(hook.command);
-            yield* execOk(sandbox, hook.command);
-          }
-        }
-
         message("Syncing repo into sandbox");
         const syncResult = yield* syncIn(
           hostRepoDir,

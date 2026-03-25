@@ -27,7 +27,6 @@ export interface RunOptions {
   readonly maxIterations?: number;
   /** Hooks to run during sandbox lifecycle */
   readonly hooks?: {
-    readonly onSandboxCreate?: ReadonlyArray<{ command: string }>;
     readonly onSandboxReady?: ReadonlyArray<{ command: string }>;
   };
   /** Target branch name for sandbox work */

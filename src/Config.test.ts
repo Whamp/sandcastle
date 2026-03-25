@@ -144,14 +144,12 @@ describe("readConfig", () => {
     const repoDir = await mkdtemp(join(tmpdir(), "config-test-"));
     await setupConfigDir(repoDir, {
       hooks: {
-        onSandboxCreate: [{ command: "apt-get update" }],
         onSandboxReady: [{ command: "npm install" }],
       },
       defaultMaxIterations: 3,
     });
 
     const config = await Effect.runPromise(readConfig(repoDir));
-    expect(config.hooks?.onSandboxCreate?.[0]?.command).toBe("apt-get update");
     expect(config.hooks?.onSandboxReady?.[0]?.command).toBe("npm install");
     expect(config.defaultMaxIterations).toBe(3);
   });

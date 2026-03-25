@@ -80,30 +80,6 @@ describe("withSandboxLifecycle", () => {
     expect(stdout).toContain("add feature");
   });
 
-  it("onSandboxCreate hooks run before sync-in", async () => {
-    const { hostDir, sandboxDir, sandboxRepoDir, layer } = await setup();
-    await initRepo(hostDir);
-    await commitFile(hostDir, "file.txt", "original", "initial commit");
-
-    const markerPath = join(sandboxDir, "create-marker.txt");
-
-    await Effect.runPromise(
-      withSandboxLifecycle(
-        {
-          hostRepoDir: hostDir,
-          sandboxRepoDir,
-          hooks: {
-            onSandboxCreate: [{ command: `echo created > "${markerPath}"` }],
-          },
-        },
-        () => Effect.void,
-      ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
-    );
-
-    const marker = await readFile(markerPath, "utf-8");
-    expect(marker.trim()).toBe("created");
-  });
-
   it("onSandboxReady hooks run after sync-in", async () => {
     const { hostDir, sandboxRepoDir, layer } = await setup();
     await initRepo(hostDir);
@@ -188,7 +164,7 @@ describe("withSandboxLifecycle", () => {
             hostRepoDir: hostDir,
             sandboxRepoDir,
             hooks: {
-              onSandboxCreate: [{ command: "exit 1" }],
+              onSandboxReady: [{ command: "exit 1" }],
             },
           },
           () =>

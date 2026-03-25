@@ -9,7 +9,6 @@ const HookDefinition = Schema.Struct({
 const SandcastleConfigSchema = Schema.Struct({
   hooks: Schema.optional(
     Schema.Struct({
-      onSandboxCreate: Schema.optional(Schema.Array(HookDefinition)),
       onSandboxReady: Schema.optional(Schema.Array(HookDefinition)),
     }),
   ),
