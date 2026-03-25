@@ -10,6 +10,7 @@ vi.mock("node:child_process", () => ({
 vi.mock("./WorktreeManager.js", () => ({
   create: vi.fn(),
   remove: vi.fn(),
+  pruneStale: vi.fn(),
 }));
 
 import { execFile } from "node:child_process";
@@ -25,6 +26,7 @@ import {
 const mockExecFile = vi.mocked(execFile);
 const mockCreate = vi.mocked(WorktreeManager.create);
 const mockRemove = vi.mocked(WorktreeManager.remove);
+const mockPruneStale = vi.mocked(WorktreeManager.pruneStale);
 
 /** Make all execFile calls succeed with given stdout. */
 const mockDockerSuccess = (stdout = "") => {
@@ -62,6 +64,7 @@ describe("WorktreeDockerSandboxFactory", () => {
       branch: "sandcastle/20240101-000000",
     });
     mockRemove.mockResolvedValue(undefined);
+    mockPruneStale.mockResolvedValue(undefined);
     mockDockerSuccess();
   });
 
@@ -120,6 +123,42 @@ describe("WorktreeDockerSandboxFactory", () => {
     );
 
     expect(mockRemove).toHaveBeenCalledWith(worktreePath);
+  });
+
+  it("prunes stale worktrees before creating a new worktree", async () => {
+    const callOrder: string[] = [];
+    mockPruneStale.mockImplementation(async () => {
+      callOrder.push("pruneStale");
+    });
+    mockCreate.mockImplementation(async () => {
+      callOrder.push("create");
+      return { path: worktreePath, branch: "sandcastle/20240101-000000" };
+    });
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const factory = yield* SandboxFactory;
+        yield* factory.withSandbox(Effect.void);
+      }).pipe(Effect.provide(makeLayer())),
+    );
+
+    expect(mockPruneStale).toHaveBeenCalledWith(hostRepoDir);
+    expect(callOrder.indexOf("pruneStale")).toBeLessThan(
+      callOrder.indexOf("create"),
+    );
+  });
+
+  it("continues creating the worktree even if pruning fails", async () => {
+    mockPruneStale.mockRejectedValue(new Error("prune failed"));
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const factory = yield* SandboxFactory;
+        yield* factory.withSandbox(Effect.void);
+      }).pipe(Effect.provide(makeLayer())),
+    );
+
+    expect(mockCreate).toHaveBeenCalledWith(hostRepoDir);
   });
 
   it("removes worktree even if the effect fails", async () => {

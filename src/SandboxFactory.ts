@@ -81,39 +81,52 @@ export const WorktreeDockerSandboxFactory = {
           const containerName = `sandcastle-${randomUUID()}`;
 
           return Effect.acquireUseRelease(
-            // Acquire: create worktree, then start container
-            Effect.promise(() => WorktreeManager.create(hostRepoDir)).pipe(
-              Effect.flatMap((worktreeInfo) => {
-                const gitDir = join(hostRepoDir, ".git");
-                const volumeMounts = [
-                  `${worktreeInfo.path}:/workspace`,
-                  `${gitDir}:${gitDir}`,
-                ];
-
-                const cleanup = () => {
-                  forceRemoveContainerSync(containerName);
-                  forceRemoveWorktreeSync(worktreeInfo.path, hostRepoDir);
-                };
-                const onSignal = () => {
-                  cleanup();
-                  process.exit(1);
-                };
-
-                return startContainer(containerName, imageName, env, {
-                  volumeMounts,
-                  workdir: "/workspace",
-                }).pipe(
-                  Effect.tap(() =>
-                    Effect.sync(() => {
-                      process.on("exit", cleanup);
-                      process.on("SIGINT", onSignal);
-                      process.on("SIGTERM", onSignal);
-                    }),
-                  ),
-                  Effect.map(() => ({ worktreeInfo, cleanup, onSignal })),
+            // Acquire: prune stale worktrees (best-effort), create worktree, then start container
+            Effect.promise(() =>
+              WorktreeManager.pruneStale(hostRepoDir).catch((e) => {
+                console.error(
+                  "[sandcastle] Warning: failed to prune stale worktrees:",
+                  e,
                 );
               }),
-            ),
+            )
+              .pipe(
+                Effect.andThen(
+                  Effect.promise(() => WorktreeManager.create(hostRepoDir)),
+                ),
+              )
+              .pipe(
+                Effect.flatMap((worktreeInfo) => {
+                  const gitDir = join(hostRepoDir, ".git");
+                  const volumeMounts = [
+                    `${worktreeInfo.path}:/workspace`,
+                    `${gitDir}:${gitDir}`,
+                  ];
+
+                  const cleanup = () => {
+                    forceRemoveContainerSync(containerName);
+                    forceRemoveWorktreeSync(worktreeInfo.path, hostRepoDir);
+                  };
+                  const onSignal = () => {
+                    cleanup();
+                    process.exit(1);
+                  };
+
+                  return startContainer(containerName, imageName, env, {
+                    volumeMounts,
+                    workdir: "/workspace",
+                  }).pipe(
+                    Effect.tap(() =>
+                      Effect.sync(() => {
+                        process.on("exit", cleanup);
+                        process.on("SIGINT", onSignal);
+                        process.on("SIGTERM", onSignal);
+                      }),
+                    ),
+                    Effect.map(() => ({ worktreeInfo, cleanup, onSignal })),
+                  );
+                }),
+              ),
             // Use
             () =>
               effect.pipe(
