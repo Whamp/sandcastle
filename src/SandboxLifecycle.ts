@@ -58,6 +58,14 @@ export const withSandboxLifecycle = <A>(
     yield* display.taskLog("Setting up sandbox", (message) =>
       Effect.gen(function* () {
         if (skipSync) {
+          // Worktree mode: the bind-mounted worktree may be owned by a
+          // different UID (host user vs container user).  Mark it safe so
+          // git doesn't reject it with "dubious ownership".
+          yield* execOk(
+            sandbox,
+            `git config --global --add safe.directory "${sandboxRepoDir}"`,
+          );
+
           // Worktree mode: repo is bind-mounted — discover branch directly
           resolvedBranch = (yield* execOk(
             sandbox,
