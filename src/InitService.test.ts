@@ -123,4 +123,58 @@ describe("InitService scaffold", () => {
     expect(prompt).toContain("!`");
     expect(prompt).toContain("<promise>COMPLETE</promise>");
   });
+
+  it("blank template produces skeleton prompt and no main.ts", async () => {
+    const dir = await makeDir();
+    await scaffold(dir, fakeProvider, "blank");
+
+    const configDir = join(dir, ".sandcastle");
+    const prompt = await readFile(join(configDir, "prompt.md"), "utf-8");
+    expect(prompt).toContain("!`");
+    expect(prompt).toContain("<promise>COMPLETE</promise>");
+
+    const { access } = await import("node:fs/promises");
+    await expect(access(join(configDir, "main.ts"))).rejects.toThrow();
+  });
+
+  it("blank template produces identical output to default (no template arg)", async () => {
+    const dir1 = await makeDir();
+    const dir2 = await makeDir();
+    await scaffold(dir1, fakeProvider);
+    await scaffold(dir2, fakeProvider, "blank");
+
+    const prompt1 = await readFile(
+      join(dir1, ".sandcastle", "prompt.md"),
+      "utf-8",
+    );
+    const prompt2 = await readFile(
+      join(dir2, ".sandcastle", "prompt.md"),
+      "utf-8",
+    );
+    expect(prompt1).toBe(prompt2);
+  });
+
+  it("unknown template name throws a clear error", async () => {
+    const dir = await makeDir();
+    await expect(scaffold(dir, fakeProvider, "nonexistent")).rejects.toThrow(
+      "nonexistent",
+    );
+  });
+
+  it("common files are generated correctly regardless of template", async () => {
+    const dir = await makeDir();
+    await scaffold(dir, fakeProvider, "blank");
+
+    const configDir = join(dir, ".sandcastle");
+    const dockerfile = await readFile(join(configDir, "Dockerfile"), "utf-8");
+    expect(dockerfile).toBe(fakeProvider.dockerfileTemplate);
+
+    const envExample = await readFile(join(configDir, ".env.example"), "utf-8");
+    expect(envExample).toContain("FAKE_TOKEN=");
+
+    const configJson = JSON.parse(
+      await readFile(join(configDir, "config.json"), "utf-8"),
+    );
+    expect(configJson).toEqual({ agent: "fake-agent" });
+  });
 });
