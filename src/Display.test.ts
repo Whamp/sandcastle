@@ -190,9 +190,8 @@ describe("FileDisplay", () => {
 
   const readLog = (logPath: string) => readFileSync(logPath, "utf-8");
 
-  it("writes intro to file and prints start message to console", async () => {
+  it("intro is a no-op", async () => {
     const { logPath, layer } = setup();
-    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await Effect.runPromise(
       Effect.gen(function* () {
@@ -202,14 +201,11 @@ describe("FileDisplay", () => {
     );
 
     const log = readLog(logPath);
-    expect(log).toContain("=== sandcastle ===");
-    expect(spy).toHaveBeenCalledWith(`Agent started. Logs: ${logPath}`);
-    spy.mockRestore();
+    expect(log).toBe("");
   });
 
-  it("writes status messages to file only", async () => {
+  it("writes status messages to file", async () => {
     const { logPath, layer } = setup();
-    const spy = vi.spyOn(console, "log").mockImplementation(() => {});
 
     await Effect.runPromise(
       Effect.gen(function* () {
@@ -222,9 +218,6 @@ describe("FileDisplay", () => {
     const log = readLog(logPath);
     expect(log).toContain("[INFO] Syncing files...");
     expect(log).toContain("[SUCCESS] Done!");
-    // console.log should not have been called (no intro)
-    expect(spy).not.toHaveBeenCalled();
-    spy.mockRestore();
   });
 
   it("writes spinner messages to file and passes through result", async () => {
@@ -239,8 +232,8 @@ describe("FileDisplay", () => {
 
     expect(result).toBe("hello");
     const log = readLog(logPath);
-    expect(log).toContain("[SPINNER] Loading...");
-    expect(log).toContain("[SPINNER] Loading... done");
+    expect(log).toContain("Loading...");
+    expect(log).toContain("Loading... done");
   });
 
   it("writes summary to file", async () => {
@@ -257,7 +250,7 @@ describe("FileDisplay", () => {
     );
 
     const log = readLog(logPath);
-    expect(log).toContain("[SUMMARY] Token Usage");
+    expect(log).toContain("Token Usage");
     expect(log).toContain("Input tokens: 1,234");
     expect(log).toContain("Output tokens: 567");
   });
@@ -278,10 +271,10 @@ describe("FileDisplay", () => {
     );
 
     const log = readLog(logPath);
-    expect(log).toContain("[TASK] Sync in");
+    expect(log).toContain("Sync in\n");
     expect(log).toContain("Cloning repo...");
     expect(log).toContain("Running hooks...");
-    expect(log).toContain("[TASK] Sync in done");
+    expect(log).toContain("Sync in done");
   });
 
   it("writes text messages to file", async () => {

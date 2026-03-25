@@ -110,8 +110,6 @@ export const SilentDisplay = {
     }),
 };
 
-const formatTimestamp = (): string => new Date().toISOString();
-
 const appendToLog = (filePath: string, line: string): void => {
   appendFileSync(filePath, line + "\n");
 };
@@ -120,31 +118,18 @@ export const FileDisplay = {
   layer: (filePath: string): Layer.Layer<Display> => {
     writeFileSync(filePath, "");
     return Layer.succeed(Display, {
-      intro: (title) =>
-        Effect.sync(() => {
-          appendToLog(filePath, `[${formatTimestamp()}] === ${title} ===`);
-          console.log(`Agent started. Logs: ${filePath}`);
-        }),
+      intro: () => Effect.void,
 
       status: (message, severity) =>
         Effect.sync(() => {
-          appendToLog(
-            filePath,
-            `[${formatTimestamp()}] [${severity.toUpperCase()}] ${message}`,
-          );
+          appendToLog(filePath, `[${severity.toUpperCase()}] ${message}`);
         }),
 
       spinner: (message, effect) =>
         Effect.gen(function* () {
-          appendToLog(
-            filePath,
-            `[${formatTimestamp()}] [SPINNER] ${message}...`,
-          );
+          appendToLog(filePath, `${message}...`);
           const result = yield* effect;
-          appendToLog(
-            filePath,
-            `[${formatTimestamp()}] [SPINNER] ${message} done`,
-          );
+          appendToLog(filePath, `${message} done`);
           return result;
         }),
 
@@ -153,19 +138,16 @@ export const FileDisplay = {
           const lines = Object.entries(rows)
             .map(([key, value]) => `  ${key}: ${value}`)
             .join("\n");
-          appendToLog(
-            filePath,
-            `[${formatTimestamp()}] [SUMMARY] ${title}\n${lines}`,
-          );
+          appendToLog(filePath, `${title}\n${lines}`);
         }),
 
       taskLog: (title, effect) =>
         Effect.gen(function* () {
-          appendToLog(filePath, `[${formatTimestamp()}] [TASK] ${title}`);
+          appendToLog(filePath, title);
           const result = yield* effect((msg) => {
             appendToLog(filePath, `  ${msg}`);
           });
-          appendToLog(filePath, `[${formatTimestamp()}] [TASK] ${title} done`);
+          appendToLog(filePath, `${title} done`);
           return result;
         }),
 
