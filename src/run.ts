@@ -80,6 +80,33 @@ export const buildLogFilename = (
   return `${sanitized}.log`;
 };
 
+export interface RunSummaryRowsOptions {
+  readonly name?: string;
+  readonly agentName: string;
+  readonly imageName: string;
+  readonly maxIterations: number;
+  readonly branch: string;
+  readonly model?: string;
+}
+
+/**
+ * Build the summary rows for a run, used in both terminal mode and
+ * log-to-file mode. When a custom name is provided it appears as the
+ * Agent value instead of the internal provider name.
+ */
+export const buildRunSummaryRows = (
+  options: RunSummaryRowsOptions,
+): Record<string, string> => {
+  const rows: Record<string, string> = {
+    Agent: options.name ?? options.agentName,
+    Image: options.imageName,
+    "Max iterations": String(options.maxIterations),
+    Branch: options.branch,
+  };
+  if (options.model) rows["Model"] = options.model;
+  return rows;
+};
+
 /**
  * Build the completion status message for a run, used in both terminal mode
  * and log-to-file mode to record the final outcome.
@@ -252,13 +279,14 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
     Effect.gen(function* () {
       const d = yield* Display;
       yield* d.intro(options.name ?? "sandcastle");
-      const rows: Record<string, string> = {
-        Agent: agentName,
-        Image: resolvedImageName,
-        "Max iterations": String(maxIterations),
-      };
-      rows["Branch"] = resolvedBranch;
-      if (resolvedModel) rows["Model"] = resolvedModel;
+      const rows = buildRunSummaryRows({
+        name: options.name,
+        agentName,
+        imageName: resolvedImageName,
+        maxIterations,
+        branch: resolvedBranch,
+        model: resolvedModel,
+      });
       yield* d.summary("Sandcastle Run", rows);
 
       // Substitute prompt arguments ({{KEY}} placeholders) before orchestration

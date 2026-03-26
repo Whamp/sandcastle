@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import {
   buildCompletionMessage,
   buildLogFilename,
+  buildRunSummaryRows,
   DEFAULT_MAX_ITERATIONS,
   defaultImageName,
   printFileDisplayStartup,
@@ -165,6 +166,62 @@ describe("RunOptions", () => {
   it("allows name to be omitted", () => {
     const opts: RunOptions = { prompt: "test" };
     expect(opts.name).toBeUndefined();
+  });
+});
+
+describe("buildRunSummaryRows", () => {
+  it("uses the custom name as Agent when name is provided", () => {
+    const rows = buildRunSummaryRows({
+      name: "Implementer #202",
+      agentName: "claude-code",
+      imageName: "sandcastle:myrepo",
+      maxIterations: 3,
+      branch: "main",
+    });
+    expect(rows["Agent"]).toBe("Implementer #202");
+  });
+
+  it("falls back to agentName when no name is provided", () => {
+    const rows = buildRunSummaryRows({
+      agentName: "claude-code",
+      imageName: "sandcastle:myrepo",
+      maxIterations: 1,
+      branch: "main",
+    });
+    expect(rows["Agent"]).toBe("claude-code");
+  });
+
+  it("includes image, max iterations, and branch", () => {
+    const rows = buildRunSummaryRows({
+      agentName: "claude-code",
+      imageName: "sandcastle:myrepo",
+      maxIterations: 5,
+      branch: "sandcastle/issue-160",
+    });
+    expect(rows["Image"]).toBe("sandcastle:myrepo");
+    expect(rows["Max iterations"]).toBe("5");
+    expect(rows["Branch"]).toBe("sandcastle/issue-160");
+  });
+
+  it("includes model when provided", () => {
+    const rows = buildRunSummaryRows({
+      agentName: "claude-code",
+      imageName: "sandcastle:myrepo",
+      maxIterations: 1,
+      branch: "main",
+      model: "claude-opus-4-6",
+    });
+    expect(rows["Model"]).toBe("claude-opus-4-6");
+  });
+
+  it("omits model when not provided", () => {
+    const rows = buildRunSummaryRows({
+      agentName: "claude-code",
+      imageName: "sandcastle:myrepo",
+      maxIterations: 1,
+      branch: "main",
+    });
+    expect(rows["Model"]).toBeUndefined();
   });
 });
 
