@@ -1,7 +1,8 @@
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Ref } from "effect";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { WorktreeError } from "./errors.js";
+import { Display, SilentDisplay, type DisplayEntry } from "./Display.js";
 
 // Mock child_process before importing modules under test
 vi.mock("node:child_process", () => ({
@@ -50,16 +51,19 @@ describe("WorktreeDockerSandboxFactory", () => {
   const hostRepoDir = "/host/repo";
   const worktreePath = "/host/repo/.sandcastle/worktrees/sandcastle-123";
 
-  const makeLayer = () =>
+  const makeLayer = (
+    displayRef = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]),
+  ) =>
     Layer.provide(
       WorktreeDockerSandboxFactory.layer,
-      Layer.merge(
+      Layer.mergeAll(
         Layer.succeed(WorktreeSandboxConfig, {
           imageName: "test-image",
           env: { FOO: "bar" },
           hostRepoDir,
         }),
         NodeFileSystem.layer,
+        SilentDisplay.layer(displayRef),
       ),
     );
 
@@ -78,7 +82,7 @@ describe("WorktreeDockerSandboxFactory", () => {
   it("passes branch from config to WorktreeManager.create when branch is specified", async () => {
     const layerWithBranch = Layer.provide(
       WorktreeDockerSandboxFactory.layer,
-      Layer.merge(
+      Layer.mergeAll(
         Layer.succeed(WorktreeSandboxConfig, {
           imageName: "test-image",
           env: {},
@@ -86,6 +90,7 @@ describe("WorktreeDockerSandboxFactory", () => {
           branch: "feature/my-branch",
         }),
         NodeFileSystem.layer,
+        SilentDisplay.layer(Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([])),
       ),
     );
 
@@ -228,5 +233,39 @@ describe("WorktreeDockerSandboxFactory", () => {
     ).rejects.toThrow();
 
     expect(mockRemove).toHaveBeenCalledWith(worktreePath);
+  });
+
+  it("logs copy-to-sandbox as a spinner when copyToSandbox paths are provided", async () => {
+    const ref = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]);
+    const layerWithCopy = Layer.provide(
+      WorktreeDockerSandboxFactory.layer,
+      Layer.mergeAll(
+        Layer.succeed(WorktreeSandboxConfig, {
+          imageName: "test-image",
+          env: {},
+          hostRepoDir,
+          copyToSandbox: ["node_modules"],
+        }),
+        NodeFileSystem.layer,
+        SilentDisplay.layer(ref),
+      ),
+    );
+
+    vi.mock("./CopyToSandbox.js", () => ({
+      copyToSandbox: vi.fn(() => Effect.succeed(undefined)),
+    }));
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const factory = yield* SandboxFactory;
+        yield* factory.withSandbox(() => Effect.void);
+      }).pipe(Effect.provide(layerWithCopy)),
+    );
+
+    const entries = await Effect.runPromise(Ref.get(ref));
+    const spinnerEntry = entries.find(
+      (e) => e._tag === "spinner" && e.message === "Copying to sandbox",
+    );
+    expect(spinnerEntry).toBeDefined();
   });
 });

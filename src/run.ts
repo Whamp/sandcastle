@@ -221,7 +221,7 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
 
   const factoryLayer = Layer.provide(
     WorktreeDockerSandboxFactory.layer,
-    Layer.merge(
+    Layer.mergeAll(
       Layer.succeed(WorktreeSandboxConfig, {
         imageName: resolvedImageName,
         env,
@@ -233,6 +233,7 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
         agentName,
       }),
       NodeFileSystem.layer,
+      displayLayer,
     ),
   );
 

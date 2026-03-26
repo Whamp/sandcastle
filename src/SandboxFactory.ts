@@ -18,6 +18,7 @@ import {
 } from "./errors.js";
 import * as WorktreeManager from "./WorktreeManager.js";
 import { copyToSandbox } from "./CopyToSandbox.js";
+import { Display } from "./Display.js";
 
 export interface ExecResult {
   readonly stdout: string;
@@ -307,6 +308,7 @@ export const WorktreeDockerSandboxFactory = {
         agentName,
       } = yield* WorktreeSandboxConfig;
       const fileSystem = yield* FileSystem.FileSystem;
+      const display = yield* Display;
       return {
         withSandbox: <A, E, R>(
           makeEffect: (info: SandboxInfo) => Effect.Effect<A, E, R | Sandbox>,
@@ -341,7 +343,14 @@ export const WorktreeDockerSandboxFactory = {
               .pipe(
                 Effect.flatMap((worktreeInfo) =>
                   (copyPaths && copyPaths.length > 0
-                    ? copyToSandbox(copyPaths, hostRepoDir, worktreeInfo.path)
+                    ? display.spinner(
+                        "Copying to sandbox",
+                        copyToSandbox(
+                          copyPaths,
+                          hostRepoDir,
+                          worktreeInfo.path,
+                        ),
+                      )
                     : Effect.succeed(undefined)
                   ).pipe(Effect.map(() => worktreeInfo)),
                 ),

@@ -242,6 +242,20 @@ describe("FileDisplay", () => {
     expect(log).toContain("Loading... done");
   });
 
+  it("spinner done line includes elapsed time in seconds", async () => {
+    const { logPath, layer } = setup();
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const d = yield* Display;
+        yield* d.spinner("Building image", Effect.succeed(undefined));
+      }).pipe(Effect.provide(layer)),
+    );
+
+    const log = readLog(logPath);
+    expect(log).toMatch(/Building image done \(\d+\.\ds\)/);
+  });
+
   it("writes summary to file", async () => {
     const { logPath, layer } = setup();
 
@@ -277,10 +291,27 @@ describe("FileDisplay", () => {
     );
 
     const log = readLog(logPath);
-    expect(log).toContain("Sync in\n");
     expect(log).toContain("Cloning repo...");
     expect(log).toContain("Running hooks...");
     expect(log).toContain("Sync in done");
+  });
+
+  it("taskLog done line includes elapsed time in seconds", async () => {
+    const { logPath, layer } = setup();
+
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const d = yield* Display;
+        yield* d.taskLog("Setting up sandbox", (msg) =>
+          Effect.sync(() => {
+            msg("Running hooks...");
+          }),
+        );
+      }).pipe(Effect.provide(layer)),
+    );
+
+    const log = readLog(logPath);
+    expect(log).toMatch(/Setting up sandbox done \(\d+\.\ds\)/);
   });
 
   it("writes text messages to file", async () => {

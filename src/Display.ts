@@ -138,8 +138,10 @@ export const FileDisplay = {
           spinner: (message, effect) =>
             Effect.gen(function* () {
               yield* appendToLog(`${message}...`);
+              const start = Date.now();
               const result = yield* effect;
-              yield* appendToLog(`${message} done`);
+              const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+              yield* appendToLog(`${message} done (${elapsed}s)`);
               return result;
             }),
 
@@ -153,14 +155,16 @@ export const FileDisplay = {
           taskLog: (title, effect) =>
             Effect.gen(function* () {
               yield* appendToLog(title);
+              const start = Date.now();
               const messages: string[] = [];
               const result = yield* effect((msg) => {
                 messages.push(msg);
               });
+              const elapsed = ((Date.now() - start) / 1000).toFixed(1);
               for (const msg of messages) {
                 yield* appendToLog(`  ${msg}`);
               }
-              yield* appendToLog(`${title} done`);
+              yield* appendToLog(`${title} done (${elapsed}s)`);
               return result;
             }),
 
