@@ -49,7 +49,15 @@ const extractUsage = (obj: Record<string, unknown>): TokenUsage | null => {
 export type ParsedStreamEvent =
   | { type: "text"; text: string }
   | { type: "result"; result: string; usage: TokenUsage | null }
-  | { type: "tool_call"; name: string; input: Record<string, unknown> };
+  | { type: "tool_call"; name: string; args: string };
+
+/** Maps allowlisted tool names to the input field containing the display arg */
+const TOOL_ARG_FIELDS: Record<string, string> = {
+  Bash: "command",
+  WebSearch: "query",
+  WebFetch: "url",
+  Agent: "description",
+};
 
 /** Extract displayable events from a stream-json line */
 export const parseStreamJsonLine = (line: string): ParsedStreamEvent[] => {
@@ -72,6 +80,10 @@ export const parseStreamJsonLine = (line: string): ParsedStreamEvent[] => {
           typeof block.name === "string" &&
           block.input !== undefined
         ) {
+          const argField = TOOL_ARG_FIELDS[block.name];
+          if (argField === undefined) continue; // not allowlisted
+          const argValue = block.input[argField];
+          if (typeof argValue !== "string") continue; // missing/wrong arg field
           if (texts.length > 0) {
             events.push({ type: "text", text: texts.join("") });
             texts.length = 0;
@@ -79,7 +91,7 @@ export const parseStreamJsonLine = (line: string): ParsedStreamEvent[] => {
           events.push({
             type: "tool_call",
             name: block.name,
-            input: block.input,
+            args: argValue,
           });
         }
       }
@@ -103,6 +115,7 @@ const invokeAgent = (
   prompt: string,
   model: string,
   onText: (text: string) => void,
+  onToolCall: (name: string, formattedArgs: string) => void,
 ): Effect.Effect<{ result: string; usage: TokenUsage | null }, SandboxError> =>
   Effect.gen(function* () {
     let resultText = "";
@@ -117,6 +130,8 @@ const invokeAgent = (
           } else if (parsed.type === "result") {
             resultText = parsed.result;
             tokenUsage = parsed.usage;
+          } else if (parsed.type === "tool_call") {
+            onToolCall(parsed.name, `${parsed.name}(${parsed.args})`);
           }
         }
       },
@@ -217,12 +232,16 @@ export const orchestrate = (
                 const onText = (text: string) => {
                   Effect.runPromise(display.text(text));
                 };
+                const onToolCall = (name: string, formattedArgs: string) => {
+                  Effect.runPromise(display.toolCall(name, formattedArgs));
+                };
                 const { result: agentOutput, usage } = yield* invokeAgent(
                   ctx.sandbox,
                   ctx.sandboxRepoDir,
                   fullPrompt,
                   resolvedModel,
                   onText,
+                  onToolCall,
                 );
 
                 yield* display.status(label("Agent stopped"), "info");
