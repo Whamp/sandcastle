@@ -42,10 +42,10 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     console.log(`  #${issue.number}: ${issue.title} → ${issue.branch}`);
   }
 
-  // Phase 2: Execute — spawn N agents in parallel, each on a separate branch
+  // Phase 2: Execute + Review — implement then review each branch, all in parallel
   const settled = await Promise.allSettled(
-    issues.map((issue) =>
-      sandcastle.run({
+    issues.map(async (issue) => {
+      const result = await sandcastle.run({
         name: "Implementer #" + issue.number,
         hooks,
         maxIterations: 100,
@@ -58,8 +58,26 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         },
         branch: issue.branch,
         copyToSandbox: ["node_modules"],
-      }),
-    ),
+      });
+
+      if (result.commits.length > 0) {
+        await sandcastle.run({
+          name: "Reviewer #" + issue.number,
+          hooks,
+          model: "claude-opus-4-6",
+          promptFile: "./.sandcastle/review-prompt.md",
+          promptArgs: {
+            ISSUE_NUMBER: String(issue.number),
+            ISSUE_TITLE: issue.title,
+            BRANCH: issue.branch,
+          },
+          branch: issue.branch,
+          copyToSandbox: ["node_modules"],
+        });
+      }
+
+      return result;
+    }),
   );
 
   for (const [i, outcome] of settled.entries()) {
