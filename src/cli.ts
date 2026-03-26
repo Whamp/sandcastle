@@ -3,7 +3,7 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { Effect, Layer } from "effect";
 import * as clack from "@clack/prompts";
-import { spawn } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import { join } from "node:path";
 import { styleText } from "node:util";
 import { Display } from "./Display.js";
@@ -119,6 +119,26 @@ const initCommand = Command.make(
           );
         }
         selectedTemplate = selected as string;
+      }
+
+      // Offer to create the "Sandcastle" label on the repo
+      const shouldCreateLabel = yield* Effect.promise(() =>
+        clack.confirm({
+          message:
+            'Create a "Sandcastle" GitHub label? (Templates filter issues by this label)',
+          initialValue: true,
+        }),
+      );
+
+      if (shouldCreateLabel === true) {
+        yield* Effect.try({
+          try: () =>
+            execSync(
+              'gh label create "Sandcastle" --description "Issues for Sandcastle to work on" --color "F9A825" 2>/dev/null',
+              { cwd, stdio: "ignore" },
+            ),
+          catch: () => undefined,
+        }).pipe(Effect.ignore);
       }
 
       yield* d.spinner(

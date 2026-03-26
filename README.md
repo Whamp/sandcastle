@@ -124,7 +124,7 @@ Commands run **inside the sandbox** after the worktree is mounted and `onSandbox
 ```markdown
 # Open issues
 
-!`gh issue list --state open --json number,title,body,comments,labels --limit 20`
+!`gh issue list --state open --label Sandcastle --json number,title,body,comments,labels --limit 20`
 
 # Recent commits
 

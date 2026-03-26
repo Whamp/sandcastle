@@ -2,7 +2,7 @@
 
 ## Open issues
 
-!`gh issue list --json number,title,body --limit 20`
+!`gh issue list --label Sandcastle --json number,title,body --limit 20`
 
 ## Recent RALPH commits (last 10)
 

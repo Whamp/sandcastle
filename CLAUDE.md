@@ -5,3 +5,5 @@ Check @UBIQUITOUS_LANGUAGE.md for terminology questions.
 For user-facing changes, add a changeset to `.changeset`. Check all changesets there first to see if there are duplicates. We use `@changesets/cli`, but you can create/edit the file manually. Make all changesets `patch` (since we're pre-1.0).
 
 When changing public-facing behavior, check `README.md` to see if the documentation needs updating.
+
+When creating GitHub issues that Sandcastle should work on, add the `Sandcastle` label to them.
