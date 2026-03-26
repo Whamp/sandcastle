@@ -50,6 +50,20 @@ Sandcastle exports a programmatic `run()` function for use in scripts, CI pipeli
 import { run } from "@ai-hero/sandcastle";
 
 const result = await run({
+  promptFile: ".sandcastle/prompt.md",
+});
+
+console.log(result.iterationsRun); // number of iterations executed
+console.log(result.commits); // array of { sha } for commits created
+console.log(result.branch); // target branch name
+```
+
+### All options
+
+```typescript
+import { run } from "@ai-hero/sandcastle";
+
+const result = await run({
   // Prompt source — provide one of these, not both:
   promptFile: ".sandcastle/prompt.md", // path to a prompt file (default: .sandcastle/prompt.md)
   // prompt: "Fix issue #42 in this repo", // OR an inline prompt string
