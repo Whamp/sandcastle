@@ -1,5 +1,17 @@
 # @ai-hero/sandcastle
 
+## 0.1.4
+
+### Patch Changes
+
+- 8e08f7e: Document custom completion signal in the Early termination README section
+- 6f9d3be: Fix CLI option tables to show correct default `--image-name` as `sandcastle:<repo-dir-name>` instead of `sandcastle:local`
+- 4c94c5f: Fix README incorrectly describing `.sandcastle/prompt.md` as a default for `promptFile`. Neither `prompt` nor `promptFile` has a default — omitting both causes an error. The `.sandcastle/prompt.md` path is a convention scaffolded by `sandcastle init`, not an automatic fallback.
+- 0d93587: Include run name in log filename to prevent overwrites in multi-agent workflows. When `name` is passed to `run()`, it is appended to the log filename (e.g. `main-implementer.log` instead of `main.log`).
+- 26683b5: Lead the API section with a simple run() example before the full options reference.
+- 3e32b7b: Remove `sandcastle interactive` CLI command documentation from README
+- 762642e: Remove stale `patches/` entry from scaffolded `.sandcastle/.gitignore`. Nothing in Sandcastle creates a `.sandcastle/patches/` directory — the worktree-based architecture eliminated patch-based sync.
+
 ## 0.1.3
 
 ### Patch Changes
