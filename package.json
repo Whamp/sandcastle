@@ -23,6 +23,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky",
+    "release": "changeset publish",
     "run-sandcastle": "tsx .sandcastle/run.ts"
   },
   "keywords": [
