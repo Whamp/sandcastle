@@ -479,6 +479,65 @@ describe("withSandboxLifecycle (worktree mode)", () => {
     expect(result.branch).toBe("main");
   });
 
+  it("sets host git user.name and user.email as global config in the sandbox", async () => {
+    const { hostDir, worktreeDir, layer } = await setupWorktree();
+
+    // setupWorktree sets user.email "test@test.com" and user.name "Test" locally in hostDir.
+    // Verify these are propagated as --global config inside the sandbox.
+
+    const result = await Effect.runPromise(
+      withSandboxLifecycle(
+        {
+          hostRepoDir: hostDir,
+          sandboxRepoDir: worktreeDir,
+          branch: "sandcastle/test",
+        },
+        (ctx) =>
+          Effect.gen(function* () {
+            // Read the globally-set git config (--global) to confirm auto-propagation
+            const emailResult = yield* ctx.sandbox.exec(
+              "git config --global user.email",
+            );
+            const nameResult = yield* ctx.sandbox.exec(
+              "git config --global user.name",
+            );
+            return {
+              email: emailResult.stdout.trim(),
+              name: nameResult.stdout.trim(),
+            };
+          }),
+      ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
+    );
+
+    expect(result.result.email).toBe("test@test.com");
+    expect(result.result.name).toBe("Test");
+  });
+
+  it("gracefully skips git identity propagation when host has no git config", async () => {
+    const { hostDir, worktreeDir, layer } = await setupWorktree();
+
+    // Unset local user config so git config user.name/email returns nothing
+    await execAsync("git config --unset user.email", { cwd: hostDir }).catch(
+      () => {},
+    );
+    await execAsync("git config --unset user.name", { cwd: hostDir }).catch(
+      () => {},
+    );
+
+    // Should not throw even when host has no git identity configured
+    await expect(
+      Effect.runPromise(
+        withSandboxLifecycle(
+          {
+            hostRepoDir: hostDir,
+            sandboxRepoDir: worktreeDir,
+          },
+          () => Effect.succeed("ok"),
+        ).pipe(Effect.provide(Layer.merge(layer, testDisplayLayer))),
+      ),
+    ).resolves.toBeDefined();
+  });
+
   it("no cherry-pick when explicit branch is given", async () => {
     const { hostDir, worktreeDir, layer } = await setupWorktree();
 

@@ -73,6 +73,19 @@ export const withSandboxLifecycle = <A>(
         })
       : null;
 
+    // Read host git identity before entering the sandbox
+    const [hostGitName, hostGitEmail] = yield* Effect.promise(async () => {
+      const [nameResult, emailResult] = await Promise.all([
+        execAsync("git config user.name", { cwd: hostRepoDir })
+          .then((r) => r.stdout.trim())
+          .catch(() => ""),
+        execAsync("git config user.email", { cwd: hostRepoDir })
+          .then((r) => r.stdout.trim())
+          .catch(() => ""),
+      ]);
+      return [nameResult, emailResult] as const;
+    });
+
     // Setup: onSandboxReady hooks
     let resolvedBranch = "";
     yield* display.taskLog("Setting up sandbox", (message) =>
@@ -84,6 +97,21 @@ export const withSandboxLifecycle = <A>(
           sandbox,
           `git config --global --add safe.directory "${sandboxRepoDir}"`,
         );
+
+        // Propagate host git identity into the sandbox so commits are attributed
+        // to the actual developer without requiring manual setup.
+        if (hostGitName) {
+          yield* execOk(
+            sandbox,
+            `git config --global user.name "${hostGitName.replace(/"/g, '\\"')}"`,
+          );
+        }
+        if (hostGitEmail) {
+          yield* execOk(
+            sandbox,
+            `git config --global user.email "${hostGitEmail.replace(/"/g, '\\"')}"`,
+          );
+        }
 
         // Repo is bind-mounted — discover branch directly
         resolvedBranch = (yield* execOk(
