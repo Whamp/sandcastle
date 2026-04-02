@@ -41,13 +41,16 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // Phase 2: Execute + Review — implement then review each branch, all in parallel
   const settled = await Promise.allSettled(
     issues.map(async (issue) => {
-      const hooks = {
-        onSandboxReady: [{ command: "npm install && npm run build" }],
-      };
+      await using sandbox = await sandcastle.createSandbox({
+        branch: issue.branch,
+        copyToSandbox: ["node_modules"],
+        hooks: {
+          onSandboxReady: [{ command: "npm install && npm run build" }],
+        },
+      });
 
-      const result = await sandcastle.run({
+      const result = await sandbox.run({
         name: "Implementer #" + issue.number,
-        hooks,
         agent: sandcastle.claudeCode("claude-opus-4-6"),
         promptFile: "./.sandcastle/implement-prompt.md",
         promptArgs: {
@@ -55,17 +58,11 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
           ISSUE_TITLE: issue.title,
           BRANCH: issue.branch,
         },
-        worktree: {
-          mode: "branch",
-          branch: issue.branch,
-        },
-        copyToSandbox: ["node_modules"],
       });
 
       if (result.commits.length > 0) {
-        await sandcastle.run({
+        await sandbox.run({
           name: "Reviewer #" + issue.number,
-          hooks,
           agent: sandcastle.claudeCode("claude-opus-4-6"),
           promptFile: "./.sandcastle/review-prompt.md",
           promptArgs: {
@@ -73,11 +70,6 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
             ISSUE_TITLE: issue.title,
             BRANCH: issue.branch,
           },
-          worktree: {
-            mode: "branch",
-            branch: issue.branch,
-          },
-          copyToSandbox: ["node_modules"],
         });
       }
 
