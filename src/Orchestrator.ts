@@ -97,7 +97,7 @@ const formatUsageRows = (usage: TokenUsage): Record<string, string> => ({
 });
 
 const DEFAULT_COMPLETION_SIGNAL = "<promise>COMPLETE</promise>";
-const DEFAULT_IDLE_TIMEOUT_SECONDS = 5 * 60; // 300 seconds
+const DEFAULT_IDLE_TIMEOUT_SECONDS = 10 * 60; // 600 seconds
 
 export interface OrchestrateOptions {
   readonly hostRepoDir: string;
@@ -108,7 +108,7 @@ export interface OrchestrateOptions {
   readonly branch?: string;
   readonly provider: AgentProvider;
   readonly completionSignal?: string | string[];
-  /** Idle timeout in seconds. If the agent produces no output for this long, it fails with TimeoutError. Default: 300 (5 minutes) */
+  /** Idle timeout in seconds. If the agent produces no output for this long, it fails with TimeoutError. Default: 600 (10 minutes) */
   readonly idleTimeoutSeconds?: number;
   /** Optional name for the run, prepended to status messages as [name] */
   readonly name?: string;

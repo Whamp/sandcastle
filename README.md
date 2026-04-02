@@ -121,8 +121,8 @@ const result = await run({
   // Default: "<promise>COMPLETE</promise>"
   completionSignal: "<promise>COMPLETE</promise>",
 
-  // Idle timeout in seconds — resets whenever the agent produces output. Default: 300 (5 minutes)
-  idleTimeoutSeconds: 300,
+  // Idle timeout in seconds — resets whenever the agent produces output. Default: 600 (10 minutes)
+  idleTimeoutSeconds: 600,
 });
 
 console.log(result.iterationsRun); // number of iterations executed
@@ -310,7 +310,7 @@ Removes the Docker image.
 | `copyToSandbox`      | string[]           | —                             | Host-relative file paths to copy into the worktree before start             |
 | `logging`            | object             | file (auto-generated)         | `{ type: 'file', path }` or `{ type: 'stdout' }`                            |
 | `completionSignal`   | string \| string[] | `<promise>COMPLETE</promise>` | String or array of strings the agent emits to stop the iteration loop early |
-| `idleTimeoutSeconds` | number             | `300`                         | Idle timeout in seconds — resets on each agent output event                 |
+| `idleTimeoutSeconds` | number             | `600`                         | Idle timeout in seconds — resets on each agent output event                 |
 
 ### `RunResult`
 

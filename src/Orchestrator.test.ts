@@ -1973,7 +1973,7 @@ describe("Orchestrator Display integration", () => {
     ).toBe(true);
   });
 
-  it("uses 5 minutes as the default idle timeout", async () => {
+  it("uses 10 minutes as the default idle timeout", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "orch-timeout-default-"));
 
     await initRepo(hostDir);
@@ -1985,7 +1985,7 @@ describe("Orchestrator Display integration", () => {
     );
 
     // Verify indirectly: a run that completes quickly should not time out.
-    // The default idle timeout is 300s (5 minutes) — far longer than any mock agent delay.
+    // The default idle timeout is 600s (10 minutes) — far longer than any mock agent delay.
     const exitResult = await Effect.runPromise(
       orchestrate({
         provider: testProvider,
@@ -1993,7 +1993,7 @@ describe("Orchestrator Display integration", () => {
         sandboxRepoDir,
         iterations: 1,
         prompt: "test",
-        // No idleTimeoutSeconds — should default to 5 minutes (300s)
+        // No idleTimeoutSeconds — should default to 10 minutes (600s)
       }).pipe(
         Effect.provide(Layer.merge(factoryLayer, testDisplayLayer)),
         Effect.exit,
