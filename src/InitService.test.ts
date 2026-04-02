@@ -1,62 +1,91 @@
 import { NodeFileSystem } from "@effect/platform-node";
 import { Effect } from "effect";
-import { mkdir, mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { scaffold, getNextStepsLines } from "./InitService.js";
-import type { AgentScaffoldConfig } from "./AgentProvider.js";
-import { CLAUDE_CODE_SCAFFOLD_CONFIG } from "./AgentProvider.js";
+import {
+  scaffold,
+  getNextStepsLines,
+  listAgents,
+  getAgent,
+  listTemplates,
+} from "./InitService.js";
+import type { AgentEntry, ScaffoldOptions } from "./InitService.js";
 import { SANDBOX_WORKSPACE_DIR } from "./SandboxFactory.js";
 import { SKELETON_PROMPT } from "./templates.js";
 
 const makeDir = () => mkdtemp(join(tmpdir(), "init-service-"));
 
-const runScaffold = (...args: Parameters<typeof scaffold>) =>
-  Effect.runPromise(
-    scaffold(...args).pipe(Effect.provide(NodeFileSystem.layer)),
-  );
+const claudeCodeAgent = getAgent("claude-code")!;
 
-const fakeScaffoldConfig: AgentScaffoldConfig = {
-  envManifest: {
-    FAKE_TOKEN: "Fake agent token",
-    FAKE_SECRET: "Fake agent secret",
-  },
-  dockerfileTemplate: "FROM ubuntu:latest\nRUN echo fake\n",
+const defaultOptions: ScaffoldOptions = {
+  agent: claudeCodeAgent,
+  model: "claude-opus-4-6",
 };
 
-describe("InitService scaffold", () => {
-  it("uses provider envManifest for .env.example", async () => {
-    const dir = await makeDir();
-    await runScaffold(dir, fakeScaffoldConfig);
+const runScaffold = (repoDir: string, options?: Partial<ScaffoldOptions>) =>
+  Effect.runPromise(
+    scaffold(repoDir, { ...defaultOptions, ...options }).pipe(
+      Effect.provide(NodeFileSystem.layer),
+    ),
+  );
 
-    const envExample = await readFile(
-      join(dir, ".sandcastle", ".env.example"),
-      "utf-8",
-    );
-    expect(envExample).toContain("FAKE_TOKEN=");
-    expect(envExample).toContain("FAKE_SECRET=");
-    // Comments from manifest should be present
-    expect(envExample).toContain("# Fake agent token");
-    expect(envExample).toContain("# Fake agent secret");
-    // Should NOT contain hardcoded claude-code keys
-    expect(envExample).not.toContain("CLAUDE_CODE_OAUTH_TOKEN");
+// ---------------------------------------------------------------------------
+// Agent registry
+// ---------------------------------------------------------------------------
+
+describe("Agent registry", () => {
+  it("listAgents returns at least claude-code", () => {
+    const agents = listAgents();
+    expect(agents.some((a) => a.name === "claude-code")).toBe(true);
   });
 
-  it("uses provider dockerfileTemplate for Dockerfile", async () => {
+  it("getAgent returns claude-code entry with expected fields", () => {
+    const agent = getAgent("claude-code");
+    expect(agent).toBeDefined();
+    expect(agent!.name).toBe("claude-code");
+    expect(agent!.defaultModel).toBe("claude-opus-4-6");
+    expect(agent!.factoryImport).toBe("claudeCode");
+    expect(agent!.dockerfileTemplate).toContain("FROM");
+  });
+
+  it("getAgent returns undefined for unknown agent", () => {
+    expect(getAgent("nonexistent")).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Scaffold
+// ---------------------------------------------------------------------------
+
+describe("InitService scaffold", () => {
+  it("uses agent dockerfileTemplate for Dockerfile", async () => {
     const dir = await makeDir();
-    await runScaffold(dir, fakeScaffoldConfig);
+    await runScaffold(dir);
 
     const dockerfile = await readFile(
       join(dir, ".sandcastle", "Dockerfile"),
       "utf-8",
     );
-    expect(dockerfile).toBe(fakeScaffoldConfig.dockerfileTemplate);
+    expect(dockerfile).toBe(claudeCodeAgent.dockerfileTemplate);
+  });
+
+  it("copies .env.example from template directory", async () => {
+    const dir = await makeDir();
+    await runScaffold(dir);
+
+    const envExample = await readFile(
+      join(dir, ".sandcastle", ".env.example"),
+      "utf-8",
+    );
+    expect(envExample).toContain("ANTHROPIC_API_KEY=");
+    expect(envExample).toContain("GH_TOKEN=");
   });
 
   it("does not scaffold config.json for blank template", async () => {
     const dir = await makeDir();
-    await runScaffold(dir, fakeScaffoldConfig);
+    await runScaffold(dir);
 
     const { access } = await import("node:fs/promises");
     await expect(
@@ -64,32 +93,19 @@ describe("InitService scaffold", () => {
     ).rejects.toThrow();
   });
 
-  it("scaffolds claude-code provider correctly", async () => {
-    const dir = await makeDir();
-    await runScaffold(dir, CLAUDE_CODE_SCAFFOLD_CONFIG);
-
-    const configDir = join(dir, ".sandcastle");
-
-    const dockerfile = await readFile(join(configDir, "Dockerfile"), "utf-8");
-    expect(dockerfile).toBe(CLAUDE_CODE_SCAFFOLD_CONFIG.dockerfileTemplate);
-
-    const envExample = await readFile(join(configDir, ".env.example"), "utf-8");
-    expect(envExample).toContain("ANTHROPIC_API_KEY=");
-    expect(envExample).toContain("GH_TOKEN=");
-  });
-
   it("errors if .sandcastle/ already exists", async () => {
     const dir = await makeDir();
+    const { mkdir } = await import("node:fs/promises");
     await mkdir(join(dir, ".sandcastle"));
 
-    await expect(runScaffold(dir, fakeScaffoldConfig)).rejects.toThrow(
+    await expect(runScaffold(dir)).rejects.toThrow(
       ".sandcastle/ directory already exists",
     );
   });
 
   it("includes .env, logs/, and worktrees/ in .gitignore but not patches/", async () => {
     const dir = await makeDir();
-    await runScaffold(dir, fakeScaffoldConfig);
+    await runScaffold(dir);
 
     const gitignore = await readFile(
       join(dir, ".sandcastle", ".gitignore"),
@@ -103,7 +119,7 @@ describe("InitService scaffold", () => {
 
   it("Dockerfile template contains workspace mount comment", async () => {
     const dir = await makeDir();
-    await runScaffold(dir, CLAUDE_CODE_SCAFFOLD_CONFIG);
+    await runScaffold(dir);
 
     const dockerfile = await readFile(
       join(dir, ".sandcastle", "Dockerfile"),
@@ -114,7 +130,7 @@ describe("InitService scaffold", () => {
 
   it("claude-code Dockerfile template does not install pnpm or enable corepack", async () => {
     const dir = await makeDir();
-    await runScaffold(dir, CLAUDE_CODE_SCAFFOLD_CONFIG);
+    await runScaffold(dir);
 
     const dockerfile = await readFile(
       join(dir, ".sandcastle", "Dockerfile"),
@@ -126,7 +142,7 @@ describe("InitService scaffold", () => {
 
   it("skeleton prompt contains section headers and hints", async () => {
     const dir = await makeDir();
-    await runScaffold(dir, fakeScaffoldConfig);
+    await runScaffold(dir);
 
     const prompt = await readFile(
       join(dir, ".sandcastle", "prompt.md"),
@@ -139,7 +155,7 @@ describe("InitService scaffold", () => {
 
   it("blank template produces skeleton prompt and main.ts", async () => {
     const dir = await makeDir();
-    await runScaffold(dir, fakeScaffoldConfig, "blank");
+    await runScaffold(dir, { templateName: "blank" });
 
     const configDir = join(dir, ".sandcastle");
     const prompt = await readFile(join(configDir, "prompt.md"), "utf-8");
@@ -152,7 +168,7 @@ describe("InitService scaffold", () => {
 
   it("blank template main.ts imports from @ai-hero/sandcastle", async () => {
     const dir = await makeDir();
-    await runScaffold(dir, fakeScaffoldConfig, "blank");
+    await runScaffold(dir, { templateName: "blank" });
 
     const mainTs = await readFile(join(dir, ".sandcastle", "main.ts"), "utf-8");
     expect(mainTs).toContain('"@ai-hero/sandcastle"');
@@ -160,7 +176,7 @@ describe("InitService scaffold", () => {
 
   it("blank template main.ts calls run()", async () => {
     const dir = await makeDir();
-    await runScaffold(dir, fakeScaffoldConfig, "blank");
+    await runScaffold(dir, { templateName: "blank" });
 
     const mainTs = await readFile(join(dir, ".sandcastle", "main.ts"), "utf-8");
     expect(mainTs).toContain("run(");
@@ -169,8 +185,8 @@ describe("InitService scaffold", () => {
   it("blank template produces identical output to default (no template arg)", async () => {
     const dir1 = await makeDir();
     const dir2 = await makeDir();
-    await runScaffold(dir1, fakeScaffoldConfig);
-    await runScaffold(dir2, fakeScaffoldConfig, "blank");
+    await runScaffold(dir1);
+    await runScaffold(dir2, { templateName: "blank" });
 
     const prompt1 = await readFile(
       join(dir1, ".sandcastle", "prompt.md"),
@@ -183,21 +199,42 @@ describe("InitService scaffold", () => {
     expect(prompt1).toBe(prompt2);
   });
 
+  // --- main.ts rewriting ---
+
+  it("scaffolds main.ts with the specified model", async () => {
+    const dir = await makeDir();
+    await runScaffold(dir, { model: "claude-sonnet-4-6" });
+
+    const mainTs = await readFile(join(dir, ".sandcastle", "main.ts"), "utf-8");
+    expect(mainTs).toContain('claudeCode("claude-sonnet-4-6")');
+    // Should not contain the template's original model
+    expect(mainTs).not.toContain('claudeCode("claude-opus-4-6")');
+  });
+
+  it("scaffolds main.ts with default model when using agent default", async () => {
+    const dir = await makeDir();
+    await runScaffold(dir);
+
+    const mainTs = await readFile(join(dir, ".sandcastle", "main.ts"), "utf-8");
+    expect(mainTs).toContain('claudeCode("claude-opus-4-6")');
+  });
+
+  // --- Template-specific tests ---
+
   it("simple-loop template produces main.ts and prompt.md", async () => {
     const dir = await makeDir();
-    await runScaffold(dir, fakeScaffoldConfig, "simple-loop");
+    await runScaffold(dir, { templateName: "simple-loop" });
 
     const configDir = join(dir, ".sandcastle");
     const { access } = await import("node:fs/promises");
 
-    // Both files must exist
     await expect(access(join(configDir, "main.ts"))).resolves.toBeUndefined();
     await expect(access(join(configDir, "prompt.md"))).resolves.toBeUndefined();
   });
 
   it("simple-loop main.ts imports from @ai-hero/sandcastle", async () => {
     const dir = await makeDir();
-    await runScaffold(dir, fakeScaffoldConfig, "simple-loop");
+    await runScaffold(dir, { templateName: "simple-loop" });
 
     const mainTs = await readFile(join(dir, ".sandcastle", "main.ts"), "utf-8");
     expect(mainTs).toContain('"@ai-hero/sandcastle"');
@@ -205,13 +242,14 @@ describe("InitService scaffold", () => {
 
   it("simple-loop main.ts contains sandcastle.run() with expected options", async () => {
     const dir = await makeDir();
-    await runScaffold(dir, fakeScaffoldConfig, "simple-loop");
+    await runScaffold(dir, { templateName: "simple-loop" });
 
     const mainTs = await readFile(join(dir, ".sandcastle", "main.ts"), "utf-8");
     expect(mainTs).toContain("run(");
     expect(mainTs).toContain("maxIterations");
     expect(mainTs).toContain("3");
-    expect(mainTs).toContain("claude-sonnet-4-6");
+    // When scaffolded with default model, simple-loop uses claude-opus-4-6
+    // (rewritten from template's claude-sonnet-4-6)
     expect(mainTs).toContain("promptFile");
     expect(mainTs).toContain("npm install");
     expect(mainTs).toContain("onSandboxReady");
@@ -219,23 +257,21 @@ describe("InitService scaffold", () => {
 
   it("simple-loop prompt.md contains shell expressions for issues and commit history", async () => {
     const dir = await makeDir();
-    await runScaffold(dir, fakeScaffoldConfig, "simple-loop");
+    await runScaffold(dir, { templateName: "simple-loop" });
 
     const prompt = await readFile(
       join(dir, ".sandcastle", "prompt.md"),
       "utf-8",
     );
-    // Shell expressions for dynamic context
     expect(prompt).toContain("!`gh issue");
     expect(prompt).toContain("!`git log");
-    // Completion signal
     expect(prompt).toContain("<promise>COMPLETE</promise>");
   });
 
   describe("sequential-reviewer template", () => {
     it("produces main.ts, implement-prompt.md, and review-prompt.md", async () => {
       const dir = await makeDir();
-      await runScaffold(dir, fakeScaffoldConfig, "sequential-reviewer");
+      await runScaffold(dir, { templateName: "sequential-reviewer" });
 
       const configDir = join(dir, ".sandcastle");
       const { access } = await import("node:fs/promises");
@@ -251,7 +287,7 @@ describe("InitService scaffold", () => {
 
     it("main.ts imports from @ai-hero/sandcastle", async () => {
       const dir = await makeDir();
-      await runScaffold(dir, fakeScaffoldConfig, "sequential-reviewer");
+      await runScaffold(dir, { templateName: "sequential-reviewer" });
 
       const mainTs = await readFile(
         join(dir, ".sandcastle", "main.ts"),
@@ -262,14 +298,13 @@ describe("InitService scaffold", () => {
 
     it("main.ts calls sandcastle.run() twice per iteration (implement + review)", async () => {
       const dir = await makeDir();
-      await runScaffold(dir, fakeScaffoldConfig, "sequential-reviewer");
+      await runScaffold(dir, { templateName: "sequential-reviewer" });
 
       const mainTs = await readFile(
         join(dir, ".sandcastle", "main.ts"),
         "utf-8",
       );
       expect(mainTs).toContain("sandcastle");
-      // Two run() calls — implement and review
       const runCallCount = (mainTs.match(/\.run\(/g) ?? []).length;
       expect(runCallCount).toBeGreaterThanOrEqual(2);
       expect(mainTs).toContain("implement-prompt.md");
@@ -278,7 +313,7 @@ describe("InitService scaffold", () => {
 
     it("main.ts passes branch from implement result to review run", async () => {
       const dir = await makeDir();
-      await runScaffold(dir, fakeScaffoldConfig, "sequential-reviewer");
+      await runScaffold(dir, { templateName: "sequential-reviewer" });
 
       const mainTs = await readFile(
         join(dir, ".sandcastle", "main.ts"),
@@ -289,7 +324,7 @@ describe("InitService scaffold", () => {
 
     it("implement-prompt.md contains {{ISSUE_NUMBER}}, {{ISSUE_TITLE}}, {{BRANCH}} prompt arguments", async () => {
       const dir = await makeDir();
-      await runScaffold(dir, fakeScaffoldConfig, "sequential-reviewer");
+      await runScaffold(dir, { templateName: "sequential-reviewer" });
 
       const prompt = await readFile(
         join(dir, ".sandcastle", "implement-prompt.md"),
@@ -302,7 +337,7 @@ describe("InitService scaffold", () => {
 
     it("review-prompt.md contains {{BRANCH}} prompt argument", async () => {
       const dir = await makeDir();
-      await runScaffold(dir, fakeScaffoldConfig, "sequential-reviewer");
+      await runScaffold(dir, { templateName: "sequential-reviewer" });
 
       const prompt = await readFile(
         join(dir, ".sandcastle", "review-prompt.md"),
@@ -312,7 +347,6 @@ describe("InitService scaffold", () => {
     });
 
     it("sequential-reviewer appears in listTemplates()", async () => {
-      const { listTemplates } = await import("./InitService.js");
       const templates = listTemplates();
       expect(templates.some((t) => t.name === "sequential-reviewer")).toBe(
         true,
@@ -322,7 +356,7 @@ describe("InitService scaffold", () => {
 
   it("simple-loop template does not scaffold compiled .js or .d.ts files", async () => {
     const dir = await makeDir();
-    await runScaffold(dir, fakeScaffoldConfig, "simple-loop");
+    await runScaffold(dir, { templateName: "simple-loop" });
 
     const { readdir } = await import("node:fs/promises");
     const files = await readdir(join(dir, ".sandcastle"));
@@ -337,119 +371,88 @@ describe("InitService scaffold", () => {
   });
 
   describe("getNextStepsLines", () => {
-    it("blank template returns steps mentioning .env, main.ts, and JS API (not npx sandcastle run)", () => {
-      const lines = getNextStepsLines("blank", fakeScaffoldConfig);
+    it("blank template returns steps mentioning .env and main.ts (not npx sandcastle run)", () => {
+      const lines = getNextStepsLines("blank");
       expect(lines.length).toBeGreaterThanOrEqual(2);
       const joined = lines.join("\n");
-      expect(joined).toContain(".sandcastle/.env");
+      expect(joined).toContain(".env");
       expect(joined).toContain("main.ts");
       expect(joined).not.toContain("npx sandcastle run");
     });
 
     it("non-blank template returns steps mentioning .env, package.json scripts, and npm run sandcastle", () => {
-      const lines = getNextStepsLines("simple-loop", fakeScaffoldConfig);
+      const lines = getNextStepsLines("simple-loop");
       const joined = lines.join("\n");
-      expect(joined).toContain(".sandcastle/.env");
+      expect(joined).toContain(".env");
       expect(joined).toContain("package.json");
       expect(joined).toContain("npm run sandcastle");
     });
 
     it("non-blank template includes a note about customizing the install command", () => {
-      const lines = getNextStepsLines("simple-loop", fakeScaffoldConfig);
+      const lines = getNextStepsLines("simple-loop");
       const joined = lines.join("\n");
       expect(joined).toContain("npm install");
       expect(joined).toContain("onSandboxReady");
     });
 
     it("non-blank template mentions copyToSandbox and node_modules", () => {
-      const lines = getNextStepsLines("simple-loop", fakeScaffoldConfig);
+      const lines = getNextStepsLines("simple-loop");
       const joined = lines.join("\n");
       expect(joined).toContain("copyToSandbox");
       expect(joined).toContain("node_modules");
     });
 
     it("blank template includes a step to customize prompt.md", () => {
-      const lines = getNextStepsLines("blank", fakeScaffoldConfig);
+      const lines = getNextStepsLines("blank");
       const joined = lines.join("\n");
       expect(joined).toContain("prompt.md");
     });
 
     it("simple-loop template includes a step to read/customize prompt files", () => {
-      const lines = getNextStepsLines("simple-loop", fakeScaffoldConfig);
+      const lines = getNextStepsLines("simple-loop");
       const joined = lines.join("\n");
       expect(joined).toContain("prompt");
       expect(joined).toMatch(/customiz|review|read/i);
     });
 
     it("sequential-reviewer template includes a step mentioning prompt files", () => {
-      const lines = getNextStepsLines(
-        "sequential-reviewer",
-        fakeScaffoldConfig,
-      );
+      const lines = getNextStepsLines("sequential-reviewer");
       const joined = lines.join("\n");
       expect(joined).toContain("prompt");
       expect(joined).toMatch(/customiz|review|read/i);
     });
 
     it("parallel-planner template includes a step mentioning prompt files", () => {
-      const lines = getNextStepsLines("parallel-planner", fakeScaffoldConfig);
+      const lines = getNextStepsLines("parallel-planner");
       const joined = lines.join("\n");
       expect(joined).toContain("prompt");
       expect(joined).toMatch(/customiz|review|read/i);
     });
 
     it("returns at least 2 numbered steps for blank template", () => {
-      const lines = getNextStepsLines("blank", fakeScaffoldConfig);
+      const lines = getNextStepsLines("blank");
       const numberedSteps = lines.filter((l) => /^\d+\./.test(l));
       expect(numberedSteps.length).toBeGreaterThanOrEqual(2);
     });
 
     it("returns at least 3 numbered steps for non-blank templates", () => {
-      const lines = getNextStepsLines("simple-loop", fakeScaffoldConfig);
+      const lines = getNextStepsLines("simple-loop");
       const numberedSteps = lines.filter((l) => /^\d+\./.test(l));
       expect(numberedSteps.length).toBeGreaterThanOrEqual(3);
-    });
-
-    it("lists env var names and descriptions from the provider envManifest", () => {
-      const lines = getNextStepsLines("blank", fakeScaffoldConfig);
-      const joined = lines.join("\n");
-      expect(joined).toContain("FAKE_TOKEN");
-      expect(joined).toContain("Fake agent token");
-      expect(joined).toContain("FAKE_SECRET");
-      expect(joined).toContain("Fake agent secret");
-    });
-
-    it("lists claude-code provider env vars when using CLAUDE_CODE_SCAFFOLD_CONFIG", () => {
-      const lines = getNextStepsLines("blank", CLAUDE_CODE_SCAFFOLD_CONFIG);
-      const joined = lines.join("\n");
-      expect(joined).toContain("ANTHROPIC_API_KEY");
-      expect(joined).toContain("GH_TOKEN");
     });
   });
 
   it("unknown template name throws a clear error", async () => {
     const dir = await makeDir();
     await expect(
-      runScaffold(dir, fakeScaffoldConfig, "nonexistent"),
+      runScaffold(dir, { templateName: "nonexistent" }),
     ).rejects.toThrow("nonexistent");
-  });
-
-  it("common files are generated correctly regardless of template", async () => {
-    const dir = await makeDir();
-    await runScaffold(dir, fakeScaffoldConfig, "blank");
-
-    const configDir = join(dir, ".sandcastle");
-    const dockerfile = await readFile(join(configDir, "Dockerfile"), "utf-8");
-    expect(dockerfile).toBe(fakeScaffoldConfig.dockerfileTemplate);
-
-    const envExample = await readFile(join(configDir, ".env.example"), "utf-8");
-    expect(envExample).toContain("FAKE_TOKEN=");
   });
 
   describe("parallel-planner template", () => {
     it("produces main.ts, plan-prompt.md, implement-prompt.md, merge-prompt.md", async () => {
       const dir = await makeDir();
-      await runScaffold(dir, fakeScaffoldConfig, "parallel-planner");
+      await runScaffold(dir, { templateName: "parallel-planner" });
 
       const configDir = join(dir, ".sandcastle");
       const { access } = await import("node:fs/promises");
@@ -468,7 +471,7 @@ describe("InitService scaffold", () => {
 
     it("main.ts uses npm install hook and imports sandcastle", async () => {
       const dir = await makeDir();
-      await runScaffold(dir, fakeScaffoldConfig, "parallel-planner");
+      await runScaffold(dir, { templateName: "parallel-planner" });
 
       const mainTs = await readFile(
         join(dir, ".sandcastle", "main.ts"),
@@ -480,7 +483,7 @@ describe("InitService scaffold", () => {
 
     it("main.ts imports from @ai-hero/sandcastle", async () => {
       const dir = await makeDir();
-      await runScaffold(dir, fakeScaffoldConfig, "parallel-planner");
+      await runScaffold(dir, { templateName: "parallel-planner" });
 
       const mainTs = await readFile(
         join(dir, ".sandcastle", "main.ts"),
@@ -489,21 +492,21 @@ describe("InitService scaffold", () => {
       expect(mainTs).toContain('"@ai-hero/sandcastle"');
     });
 
-    it("main.ts references opus for planning and sonnet for execution/merge", async () => {
+    it("main.ts references the specified model for all factory calls", async () => {
       const dir = await makeDir();
-      await runScaffold(dir, fakeScaffoldConfig, "parallel-planner");
+      await runScaffold(dir, { templateName: "parallel-planner" });
 
       const mainTs = await readFile(
         join(dir, ".sandcastle", "main.ts"),
         "utf-8",
       );
+      // All factory calls should use the specified model (default: claude-opus-4-6)
       expect(mainTs).toContain("claude-opus-4-6");
-      expect(mainTs).toContain("claude-sonnet-4-6");
     });
 
     it("implement-prompt.md contains {{ISSUE_NUMBER}}, {{ISSUE_TITLE}}, {{BRANCH}} prompt arguments", async () => {
       const dir = await makeDir();
-      await runScaffold(dir, fakeScaffoldConfig, "parallel-planner");
+      await runScaffold(dir, { templateName: "parallel-planner" });
 
       const prompt = await readFile(
         join(dir, ".sandcastle", "implement-prompt.md"),
@@ -516,7 +519,7 @@ describe("InitService scaffold", () => {
 
     it("merge-prompt.md contains {{BRANCHES}} and {{ISSUES}} prompt arguments", async () => {
       const dir = await makeDir();
-      await runScaffold(dir, fakeScaffoldConfig, "parallel-planner");
+      await runScaffold(dir, { templateName: "parallel-planner" });
 
       const prompt = await readFile(
         join(dir, ".sandcastle", "merge-prompt.md"),
@@ -528,7 +531,7 @@ describe("InitService scaffold", () => {
 
     it("main.ts always uses the merge agent regardless of branch count", async () => {
       const dir = await makeDir();
-      await runScaffold(dir, fakeScaffoldConfig, "parallel-planner");
+      await runScaffold(dir, { templateName: "parallel-planner" });
 
       const mainTs = await readFile(
         join(dir, ".sandcastle", "main.ts"),
@@ -539,17 +542,17 @@ describe("InitService scaffold", () => {
 
     it("common files are still generated with parallel-planner template", async () => {
       const dir = await makeDir();
-      await runScaffold(dir, fakeScaffoldConfig, "parallel-planner");
+      await runScaffold(dir, { templateName: "parallel-planner" });
 
       const configDir = join(dir, ".sandcastle");
       const dockerfile = await readFile(join(configDir, "Dockerfile"), "utf-8");
-      expect(dockerfile).toBe(fakeScaffoldConfig.dockerfileTemplate);
+      expect(dockerfile).toBe(claudeCodeAgent.dockerfileTemplate);
 
       const envExample = await readFile(
         join(configDir, ".env.example"),
         "utf-8",
       );
-      expect(envExample).toContain("FAKE_TOKEN=");
+      expect(envExample).toContain("ANTHROPIC_API_KEY=");
     });
   });
 });

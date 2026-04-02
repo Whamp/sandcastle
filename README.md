@@ -264,9 +264,12 @@ Select a template during `sandcastle init` when prompted, or re-run init in a fr
 
 Scaffolds the `.sandcastle/` config directory and builds the Docker image. This is the first command you run in a new repo.
 
-| Option         | Required | Default                      | Description       |
-| -------------- | -------- | ---------------------------- | ----------------- |
-| `--image-name` | No       | `sandcastle:<repo-dir-name>` | Docker image name |
+| Option         | Required | Default                      | Description                                                          |
+| -------------- | -------- | ---------------------------- | -------------------------------------------------------------------- |
+| `--image-name` | No       | `sandcastle:<repo-dir-name>` | Docker image name                                                    |
+| `--agent`      | No       | Interactive prompt           | Agent to use (e.g. `claude-code`)                                    |
+| `--model`      | No       | Agent's default model        | Model to use (e.g. `claude-sonnet-4-6`). Defaults to agent's default |
+| `--template`   | No       | Interactive prompt           | Template to scaffold (e.g. `blank`, `simple-loop`)                   |
 
 Creates the following files:
 

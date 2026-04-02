@@ -1,5 +1,3 @@
-import { SANDBOX_WORKSPACE_DIR } from "./SandboxFactory.js";
-
 export interface TokenUsage {
   readonly input_tokens: number;
   readonly output_tokens: number;
@@ -151,7 +149,7 @@ WORKDIR /home/agent
 ENTRYPOINT ["sleep", "infinity"]
 `;
 
-/** Scaffolding config for Claude Code — used by `init` and CLI, not part of the runtime AgentProvider. */
+/** Scaffolding config for Claude Code — used by \`init\` and CLI, not part of the runtime AgentProvider. */
 export const CLAUDE_CODE_SCAFFOLD_CONFIG: AgentScaffoldConfig = {
   envManifest: {
     ANTHROPIC_API_KEY: "Anthropic API key",

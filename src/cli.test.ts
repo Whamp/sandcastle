@@ -66,9 +66,14 @@ describe("sandcastle CLI", () => {
     expect(stdout).toContain("--template");
   });
 
-  it("init --help does not expose --agent flag", async () => {
+  it("init --help exposes --agent flag", async () => {
     const { stdout } = await runCli("init --help", process.cwd());
-    expect(stdout).not.toContain("--agent");
+    expect(stdout).toContain("--agent");
+  });
+
+  it("init --help exposes --model flag", async () => {
+    const { stdout } = await runCli("init --help", process.cwd());
+    expect(stdout).toContain("--model");
   });
 
   it("interactive --help does not expose --agent flag", async () => {
@@ -81,7 +86,7 @@ describe("sandcastle CLI", () => {
     await initRepo(hostDir);
 
     try {
-      await runCli("init --template nonexistent", hostDir);
+      await runCli("init --agent claude-code --template nonexistent", hostDir);
       expect.fail("Expected command to fail");
     } catch (err: unknown) {
       const { stdout, stderr } = err as { stdout: string; stderr: string };
@@ -89,6 +94,21 @@ describe("sandcastle CLI", () => {
       expect(output).toContain("nonexistent");
       expect(output).toContain("blank");
       expect(output).toContain("simple-loop");
+    }
+  });
+
+  it("init --agent nonexistent produces error listing available agents", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "cli-host-"));
+    await initRepo(hostDir);
+
+    try {
+      await runCli("init --agent nonexistent", hostDir);
+      expect.fail("Expected command to fail");
+    } catch (err: unknown) {
+      const { stdout, stderr } = err as { stdout: string; stderr: string };
+      const output = stdout + stderr;
+      expect(output).toContain("nonexistent");
+      expect(output).toContain("claude-code");
     }
   });
 });

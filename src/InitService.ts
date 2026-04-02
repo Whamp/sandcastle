@@ -2,7 +2,7 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AgentScaffoldConfig } from "./AgentProvider.js";
+import { SANDBOX_WORKSPACE_DIR } from "./SandboxFactory.js";
 
 const GITIGNORE = `.env
 logs/
@@ -37,19 +37,77 @@ const TEMPLATES: TemplateMetadata[] = [
 
 export const listTemplates = (): TemplateMetadata[] => TEMPLATES;
 
-export function getNextStepsLines(
-  template: string,
-  scaffoldConfig: AgentScaffoldConfig,
-): string[] {
-  const envLines = Object.entries(scaffoldConfig.envManifest).map(
-    ([key, description]) => `   - ${key} — ${description}`,
-  );
-  const envStep = ["1. Set the following in .sandcastle/.env:", ...envLines];
+// ---------------------------------------------------------------------------
+// Agent registry (internal — not part of public API)
+// ---------------------------------------------------------------------------
 
+export interface AgentEntry {
+  readonly name: string;
+  readonly label: string;
+  readonly defaultModel: string;
+  readonly factoryImport: string;
+  readonly dockerfileTemplate: string;
+}
+
+const CLAUDE_CODE_DOCKERFILE = `FROM node:22-bookworm
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \\
+  git \\
+  curl \\
+  jq \\
+  && rm -rf /var/lib/apt/lists/*
+
+# Install GitHub CLI
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \\
+  | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \\
+  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \\
+  | tee /etc/apt/sources.list.d/github-cli.list > /dev/null \\
+  && apt-get update && apt-get install -y gh \\
+  && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user for Claude to run as
+RUN useradd -m -s /bin/bash agent
+USER agent
+
+# Install Claude Code CLI
+RUN curl -fsSL https://claude.ai/install.sh | bash
+
+# Add Claude to PATH
+ENV PATH="/home/agent/.local/bin:$PATH"
+
+WORKDIR /home/agent
+
+# In worktree sandbox mode, Sandcastle bind-mounts the git worktree at ${SANDBOX_WORKSPACE_DIR}
+# and overrides the working directory to ${SANDBOX_WORKSPACE_DIR} at container start.
+# Structure your Dockerfile so that ${SANDBOX_WORKSPACE_DIR} can serve as the project root.
+ENTRYPOINT ["sleep", "infinity"]
+`;
+
+const AGENT_REGISTRY: AgentEntry[] = [
+  {
+    name: "claude-code",
+    label: "Claude Code",
+    defaultModel: "claude-opus-4-6",
+    factoryImport: "claudeCode",
+    dockerfileTemplate: CLAUDE_CODE_DOCKERFILE,
+  },
+];
+
+export const listAgents = (): AgentEntry[] => AGENT_REGISTRY;
+
+export const getAgent = (name: string): AgentEntry | undefined =>
+  AGENT_REGISTRY.find((a) => a.name === name);
+
+// ---------------------------------------------------------------------------
+// Next steps
+// ---------------------------------------------------------------------------
+
+export function getNextStepsLines(template: string): string[] {
   if (template === "blank") {
     return [
       "Next steps:",
-      ...envStep,
+      `1. Set the required env vars in .sandcastle/.env (see .sandcastle/.env.example)`,
       "2. Read and customize .sandcastle/prompt.md to describe what you want the agent to do",
       `3. Customize .sandcastle/main.ts — it uses the JS API (\`run()\`) to control how the agent runs`,
       `4. Add "sandcastle": "npx tsx .sandcastle/main.ts" to your package.json scripts`,
@@ -58,7 +116,7 @@ export function getNextStepsLines(
   } else {
     return [
       "Next steps:",
-      ...envStep,
+      `1. Set the required env vars in .sandcastle/.env (see .sandcastle/.env.example)`,
       `2. Add "sandcastle": "npx tsx .sandcastle/main.ts" to your package.json scripts`,
       '3. Templates use `copyToSandbox: ["node_modules"]` to copy your host node_modules into the sandbox for fast startup — the `npm install` in the onSandboxReady hook is a safety net for platform-specific binaries. Adjust both if you use a different package manager',
       "4. Read and customize the prompt files in .sandcastle/ — they shape what the agent does",
@@ -67,13 +125,9 @@ export function getNextStepsLines(
   }
 }
 
-function buildEnvExample(envManifest: Record<string, string>): string {
-  return (
-    Object.entries(envManifest)
-      .map(([key, comment]) => `# ${comment}\n${key}=`)
-      .join("\n") + "\n"
-  );
-}
+// ---------------------------------------------------------------------------
+// Scaffolding helpers
+// ---------------------------------------------------------------------------
 
 function getTemplatesDir(): string {
   const thisFile = fileURLToPath(import.meta.url);
@@ -94,6 +148,8 @@ const getTemplateDir = (
     return join(getTemplatesDir(), templateName);
   });
 
+const COMPILED_FILE_EXTENSIONS = [".js", ".js.map", ".d.ts", ".d.ts.map"];
+
 const copyTemplateFiles = (
   templateDir: string,
   destDir: string,
@@ -108,10 +164,7 @@ const copyTemplateFiles = (
         .filter(
           (f) =>
             f !== "template.json" &&
-            !f.endsWith(".js") &&
-            !f.endsWith(".js.map") &&
-            !f.endsWith(".d.ts") &&
-            !f.endsWith(".d.ts.map"),
+            !COMPILED_FILE_EXTENSIONS.some((ext) => f.endsWith(ext)),
         )
         .map((f) =>
           fs
@@ -122,12 +175,65 @@ const copyTemplateFiles = (
     );
   });
 
-export const scaffold = (
-  repoDir: string,
-  scaffoldConfig: AgentScaffoldConfig,
-  templateName = "blank",
+/**
+ * Replace the agent factory import and call in a scaffolded main.ts.
+ *
+ * Templates use `claudeCode` as the default factory. When a different agent or
+ * model is selected, this function rewrites the import and factory calls.
+ */
+const rewriteMainTs = (
+  configDir: string,
+  agent: AgentEntry,
+  model: string,
 ): Effect.Effect<void, Error, FileSystem.FileSystem> =>
   Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const mainTsPath = join(configDir, "main.ts");
+
+    const exists = yield* fs
+      .exists(mainTsPath)
+      .pipe(Effect.mapError((e) => new Error(e.message)));
+    if (!exists) return;
+
+    let content = yield* fs
+      .readFileString(mainTsPath)
+      .pipe(Effect.mapError((e) => new Error(e.message)));
+
+    // Replace factory function name in imports (e.g. claudeCode → pi)
+    // and all factory calls with the correct model.
+    // Templates always use claudeCode as the placeholder factory.
+    content = content.replace(/\bclaudeCode\b/g, agent.factoryImport);
+    // Replace model strings in factory calls: factoryImport("any-model")
+    const factoryCallRe = new RegExp(
+      `${agent.factoryImport}\\(["']([^"']+)["']\\)`,
+      "g",
+    );
+    content = content.replace(
+      factoryCallRe,
+      `${agent.factoryImport}("${model}")`,
+    );
+
+    yield* fs
+      .writeFileString(mainTsPath, content)
+      .pipe(Effect.mapError((e) => new Error(e.message)));
+  });
+
+// ---------------------------------------------------------------------------
+// Main scaffold function
+// ---------------------------------------------------------------------------
+
+export interface ScaffoldOptions {
+  agent: AgentEntry;
+  model: string;
+  templateName?: string;
+}
+
+export const scaffold = (
+  repoDir: string,
+  options: ScaffoldOptions,
+): Effect.Effect<void, Error, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const { agent, model, templateName = "blank" } = options;
     const fs = yield* FileSystem.FileSystem;
     const configDir = join(repoDir, ".sandcastle");
 
@@ -153,13 +259,7 @@ export const scaffold = (
         fs
           .writeFileString(
             join(configDir, "Dockerfile"),
-            scaffoldConfig.dockerfileTemplate,
-          )
-          .pipe(Effect.mapError((e) => new Error(e.message))),
-        fs
-          .writeFileString(
-            join(configDir, ".env.example"),
-            buildEnvExample(scaffoldConfig.envManifest),
+            agent.dockerfileTemplate,
           )
           .pipe(Effect.mapError((e) => new Error(e.message))),
         fs
@@ -169,4 +269,7 @@ export const scaffold = (
       ],
       { concurrency: "unbounded" },
     );
+
+    // Rewrite main.ts with the selected agent factory and model
+    yield* rewriteMainTs(configDir, agent, model);
   });
