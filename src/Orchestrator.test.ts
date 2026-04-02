@@ -778,6 +778,7 @@ describe("OrchestrateResult", () => {
         sandboxRepoDir: sandboxBaseDir,
         iterations: 1,
         prompt: "do some work",
+        provider: testProvider,
       }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
     );
 

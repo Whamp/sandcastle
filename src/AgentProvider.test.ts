@@ -7,17 +7,14 @@ describe("claudeCode factory", () => {
     expect(provider.name).toBe("claude-code");
   });
 
-  it("envManifest contains ANTHROPIC_API_KEY and GH_TOKEN but NOT CLAUDE_CODE_OAUTH_TOKEN", () => {
+  it("does not have envManifest property", () => {
     const provider = claudeCode("claude-opus-4-6");
-    expect(provider.envManifest).not.toHaveProperty("CLAUDE_CODE_OAUTH_TOKEN");
-    expect(provider.envManifest).toHaveProperty("ANTHROPIC_API_KEY");
-    expect(provider.envManifest).toHaveProperty("GH_TOKEN");
+    expect(provider).not.toHaveProperty("envManifest");
   });
 
-  it("has a non-empty dockerfileTemplate", () => {
+  it("does not have dockerfileTemplate property", () => {
     const provider = claudeCode("claude-opus-4-6");
-    expect(provider.dockerfileTemplate).toContain("FROM");
-    expect(provider.dockerfileTemplate).toContain("claude");
+    expect(provider).not.toHaveProperty("dockerfileTemplate");
   });
 
   it("buildPrintCommand includes the model", () => {

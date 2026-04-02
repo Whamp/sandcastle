@@ -8,9 +8,16 @@ import { join } from "node:path";
 import { styleText } from "node:util";
 import { Display } from "./Display.js";
 import { buildImage, removeImage } from "./DockerLifecycle.js";
-import { scaffold, listTemplates, getNextStepsLines } from "./InitService.js";
+import {
+  scaffold,
+  listTemplates,
+  listAgents,
+  getAgent,
+  getNextStepsLines,
+} from "./InitService.js";
 import { defaultImageName } from "./run.js";
 import { claudeCode, DEFAULT_MODEL } from "./AgentProvider.js";
+import type { AgentEntry } from "./InitService.js";
 import { AgentError, ConfigDirError, InitError } from "./errors.js";
 import {
   SandboxFactory,
@@ -63,19 +70,76 @@ const templateOption = Options.text("template").pipe(
   Options.optional,
 );
 
+const agentOption = Options.text("agent").pipe(
+  Options.withDescription("Agent to use (e.g. claude-code)"),
+  Options.optional,
+);
+
+const initModelOption = Options.text("model").pipe(
+  Options.withDescription(
+    "Model to use for the agent (e.g. claude-sonnet-4-6). Defaults to the agent's default model",
+  ),
+  Options.optional,
+);
+
 const initCommand = Command.make(
   "init",
   {
     imageName: imageNameOption,
     template: templateOption,
+    agent: agentOption,
+    model: initModelOption,
   },
-  ({ imageName: imageNameFlag, template }) =>
+  ({
+    imageName: imageNameFlag,
+    template,
+    agent: agentFlag,
+    model: modelFlag,
+  }) =>
     Effect.gen(function* () {
       const d = yield* Display;
       const cwd = process.cwd();
       const imageName = resolveImageName(imageNameFlag, cwd);
 
-      const provider = claudeCode(DEFAULT_MODEL);
+      // Resolve agent: CLI flag > interactive select
+      const agents = listAgents();
+      let selectedAgent: AgentEntry;
+      if (agentFlag._tag === "Some") {
+        const entry = getAgent(agentFlag.value);
+        if (!entry) {
+          const names = agents.map((a) => a.name).join(", ");
+          yield* Effect.fail(
+            new InitError({
+              message: `Unknown agent "${agentFlag.value}". Available: ${names}`,
+            }),
+          );
+        }
+        selectedAgent = entry!;
+      } else {
+        const selected = yield* Effect.promise(() =>
+          clack.select({
+            message: "Select an agent:",
+            initialValue: "claude-code",
+            options: agents.map((a) => ({
+              value: a.name,
+              label: a.label,
+              hint: `Default model: ${a.defaultModel}`,
+            })),
+          }),
+        );
+        if (clack.isCancel(selected)) {
+          yield* Effect.fail(
+            new InitError({ message: "Agent selection cancelled." }),
+          );
+        }
+        selectedAgent = getAgent(selected as string)!;
+      }
+
+      // Resolve model: CLI flag > agent default
+      const selectedModel =
+        modelFlag._tag === "Some"
+          ? modelFlag.value
+          : selectedAgent.defaultModel;
 
       // Resolve template: CLI flag > interactive select
       const templates = listTemplates();
@@ -134,7 +198,11 @@ const initCommand = Command.make(
 
       yield* d.spinner(
         "Scaffolding .sandcastle/ config directory...",
-        scaffold(cwd, provider, selectedTemplate).pipe(
+        scaffold(cwd, {
+          agent: selectedAgent,
+          model: selectedModel,
+          templateName: selectedTemplate,
+        }).pipe(
           Effect.mapError(
             (e) =>
               new InitError({
@@ -167,7 +235,7 @@ const initCommand = Command.make(
       }
 
       // Show template-specific next steps
-      const nextSteps = getNextStepsLines(selectedTemplate, provider);
+      const nextSteps = getNextStepsLines(selectedTemplate, selectedAgent);
       for (const [i, line] of nextSteps.entries()) {
         yield* d.text(i === 0 ? line : styleText("dim", line));
       }
