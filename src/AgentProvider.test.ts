@@ -96,6 +96,46 @@ describe("claudeCode factory", () => {
     expect(provider2.buildPrintCommand("test")).toContain("model-b");
     expect(provider1.buildPrintCommand("test")).not.toContain("model-b");
   });
+
+  it("buildPrintCommand includes --effort when specified", () => {
+    const provider = claudeCode("claude-opus-4-6", { effort: "high" });
+    const command = provider.buildPrintCommand("do something");
+    expect(command).toContain("--effort high");
+  });
+
+  it("buildPrintCommand omits --effort when not specified", () => {
+    const provider = claudeCode("claude-opus-4-6");
+    const command = provider.buildPrintCommand("do something");
+    expect(command).not.toContain("--effort");
+  });
+
+  it("buildPrintCommand omits --effort when options is empty", () => {
+    const provider = claudeCode("claude-opus-4-6", {});
+    const command = provider.buildPrintCommand("do something");
+    expect(command).not.toContain("--effort");
+  });
+
+  it("buildInteractiveArgs includes --effort when specified", () => {
+    const provider = claudeCode("claude-opus-4-6", { effort: "low" });
+    const args = provider.buildInteractiveArgs("");
+    expect(args).toContain("--effort");
+    expect(args).toContain("low");
+  });
+
+  it("buildInteractiveArgs omits --effort when not specified", () => {
+    const provider = claudeCode("claude-opus-4-6");
+    const args = provider.buildInteractiveArgs("");
+    expect(args).not.toContain("--effort");
+  });
+
+  it("supports all effort levels", () => {
+    for (const effort of ["low", "medium", "high", "max"] as const) {
+      const provider = claudeCode("claude-opus-4-6", { effort });
+      expect(provider.buildPrintCommand("test")).toContain(
+        `--effort ${effort}`,
+      );
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

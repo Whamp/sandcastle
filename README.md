@@ -81,7 +81,8 @@ import { run, claudeCode } from "@ai-hero/sandcastle";
 
 const result = await run({
   // Agent provider — required. Pass a model string to claudeCode().
-  agent: claudeCode("claude-opus-4-6"),
+  // Optional second arg for provider-specific options like effort level.
+  agent: claudeCode("claude-opus-4-6", { effort: "high" }),
 
   // Prompt source — provide one of these, not both:
   promptFile: ".sandcastle/prompt.md", // path to a prompt file
@@ -441,6 +442,18 @@ Removes the Docker image.
 | `commits`          | `{ sha }[]` | Commits created during the run                                     |
 | `branch`           | string      | Target branch name                                                 |
 | `logFilePath`      | string?     | Path to the log file (only when logging to a file)                 |
+
+### `ClaudeCodeOptions`
+
+The `claudeCode()` factory accepts an optional second argument for provider-specific options:
+
+```typescript
+agent: claudeCode("claude-opus-4-6", { effort: "high" });
+```
+
+| Option   | Type                                         | Default | Description                                             |
+| -------- | -------------------------------------------- | ------- | ------------------------------------------------------- |
+| `effort` | `"low"` \| `"medium"` \| `"high"` \| `"max"` | —       | Claude Code reasoning effort level (`max` is Opus only) |
 
 Environment variables are resolved automatically from `.sandcastle/.env` and `process.env` — no need to pass them to the API. The required variables depend on the **agent provider** (see `sandcastle init` output for details).
 

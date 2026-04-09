@@ -234,15 +234,25 @@ export const codex = (model: string): AgentProvider => ({
 // Claude Code agent provider
 // ---------------------------------------------------------------------------
 
-export const claudeCode = (model: string): AgentProvider => ({
+export interface ClaudeCodeOptions {
+  readonly effort?: "low" | "medium" | "high" | "max";
+}
+
+export const claudeCode = (
+  model: string,
+  options?: ClaudeCodeOptions,
+): AgentProvider => ({
   name: "claude-code",
 
   buildPrintCommand(prompt: string): string {
-    return `claude --print --verbose --dangerously-skip-permissions --output-format stream-json --model ${shellEscape(model)} -p ${shellEscape(prompt)}`;
+    const effortFlag = options?.effort ? ` --effort ${options.effort}` : "";
+    return `claude --print --verbose --dangerously-skip-permissions --output-format stream-json --model ${shellEscape(model)}${effortFlag} -p ${shellEscape(prompt)}`;
   },
 
   buildInteractiveArgs(_prompt: string): string[] {
-    return ["claude", "--dangerously-skip-permissions", "--model", model];
+    const args = ["claude", "--dangerously-skip-permissions", "--model", model];
+    if (options?.effort) args.push("--effort", options.effort);
+    return args;
   },
 
   parseStreamLine(line: string): ParsedStreamEvent[] {

@@ -15,4 +15,4 @@ export type {
 } from "./createSandbox.js";
 export type { PromptArgs } from "./PromptArgumentSubstitution.js";
 export { claudeCode, codex, pi } from "./AgentProvider.js";
-export type { AgentProvider } from "./AgentProvider.js";
+export type { AgentProvider, ClaudeCodeOptions } from "./AgentProvider.js";
