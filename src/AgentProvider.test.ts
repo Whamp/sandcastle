@@ -186,7 +186,7 @@ describe("pi factory", () => {
     const provider = pi("claude-sonnet-4-6");
     const line = JSON.stringify({
       type: "message_update",
-      content: [{ type: "text_delta", text: "Hello world" }],
+      assistantMessageEvent: { type: "text_delta", delta: "Hello world" },
     });
     expect(provider.parseStreamLine(line)).toEqual([
       { type: "text", text: "Hello world" },
@@ -197,8 +197,8 @@ describe("pi factory", () => {
     const provider = pi("claude-sonnet-4-6");
     const line = JSON.stringify({
       type: "tool_execution_start",
-      tool_name: "Bash",
-      input: { command: "npm test" },
+      toolName: "Bash",
+      args: { command: "npm test" },
     });
     expect(provider.parseStreamLine(line)).toEqual([
       { type: "tool_call", name: "Bash", args: "npm test" },
@@ -209,8 +209,8 @@ describe("pi factory", () => {
     const provider = pi("claude-sonnet-4-6");
     const line = JSON.stringify({
       type: "tool_execution_start",
-      tool_name: "UnknownTool",
-      input: { foo: "bar" },
+      toolName: "UnknownTool",
+      args: { foo: "bar" },
     });
     expect(provider.parseStreamLine(line)).toEqual([]);
   });
@@ -219,7 +219,18 @@ describe("pi factory", () => {
     const provider = pi("claude-sonnet-4-6");
     const line = JSON.stringify({
       type: "agent_end",
-      last_assistant_message: "Final answer <promise>COMPLETE</promise>",
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Do the thing" }] },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text: "Final answer <promise>COMPLETE</promise>",
+            },
+          ],
+        },
+      ],
     });
     expect(provider.parseStreamLine(line)).toEqual([
       {
@@ -256,8 +267,8 @@ describe("pi factory", () => {
     const provider = pi("claude-sonnet-4-6");
     const line = JSON.stringify({
       type: "tool_execution_start",
-      tool_name: "Bash",
-      // no input field
+      toolName: "Bash",
+      // no args field
     });
     expect(provider.parseStreamLine(line)).toEqual([]);
   });

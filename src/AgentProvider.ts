@@ -79,42 +79,48 @@ const parsePiStreamLine = (line: string): ParsedStreamEvent[] => {
   if (!line.startsWith("{")) return [];
   try {
     const obj = JSON.parse(line);
-    if (obj.type === "message_update" && Array.isArray(obj.content)) {
-      const texts: string[] = [];
-      for (const block of obj.content as {
+    if (obj.type === "message_update" && obj.assistantMessageEvent) {
+      const evt = obj.assistantMessageEvent as {
         type: string;
-        text?: string;
-      }[]) {
-        if (block.type === "text_delta" && typeof block.text === "string") {
-          texts.push(block.text);
-        }
-      }
-      if (texts.length > 0) {
-        return [{ type: "text", text: texts.join("") }];
+        delta?: string;
+      };
+      if (evt.type === "text_delta" && typeof evt.delta === "string") {
+        return [{ type: "text", text: evt.delta }];
       }
       return [];
     }
     if (obj.type === "tool_execution_start") {
-      const toolName = obj.tool_name;
+      const toolName = obj.toolName;
       if (typeof toolName !== "string") return [];
       const argField = TOOL_ARG_FIELDS[toolName];
       if (argField === undefined) return [];
-      const input = obj.input as Record<string, unknown> | undefined;
-      if (!input) return [];
-      const argValue = input[argField];
+      const args = obj.args as Record<string, unknown> | undefined;
+      if (!args) return [];
+      const argValue = args[argField];
       if (typeof argValue !== "string") return [];
       return [{ type: "tool_call", name: toolName, args: argValue }];
     }
-    if (
-      obj.type === "agent_end" &&
-      typeof obj.last_assistant_message === "string"
-    ) {
-      return [
-        {
-          type: "result",
-          result: obj.last_assistant_message,
-        },
-      ];
+    if (obj.type === "agent_end" && Array.isArray(obj.messages)) {
+      const messages = obj.messages as {
+        role: string;
+        content: { type: string; text?: string }[];
+      }[];
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (msg?.role === "assistant") {
+          const texts: string[] = [];
+          for (const block of msg.content) {
+            if (block.type === "text" && typeof block.text === "string") {
+              texts.push(block.text);
+            }
+          }
+          if (texts.length > 0) {
+            return [{ type: "result", result: texts.join("") }];
+          }
+          break;
+        }
+      }
+      return [];
     }
   } catch {
     // Not valid JSON — skip

@@ -64,11 +64,19 @@ const toPiStreamJson = (output: string): string => {
   lines.push(
     JSON.stringify({
       type: "message_update",
-      content: [{ type: "text_delta", text: output }],
+      assistantMessageEvent: { type: "text_delta", delta: output },
     }),
   );
   lines.push(
-    JSON.stringify({ type: "agent_end", last_assistant_message: output }),
+    JSON.stringify({
+      type: "agent_end",
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: output }],
+        },
+      ],
+    }),
   );
   return lines.join("\n");
 };
