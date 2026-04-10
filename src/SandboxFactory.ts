@@ -15,6 +15,7 @@ import { copyToSandbox } from "./CopyToSandbox.js";
 import { Display } from "./Display.js";
 import type {
   SandboxProvider,
+  BindMountSandboxProvider,
   BindMountSandboxHandle,
 } from "./SandboxProvider.js";
 
@@ -187,7 +188,7 @@ export const resolveGitMounts = (
  * Returns the handle, sandbox layer, and workspace path.
  */
 const startProviderSandbox = (
-  provider: SandboxProvider,
+  provider: BindMountSandboxProvider,
   worktreeOrRepoPath: string,
   hostRepoDir: string,
   env: Record<string, string>,

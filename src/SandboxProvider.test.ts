@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createBindMountSandboxProvider,
+  createIsolatedSandboxProvider,
   type BindMountSandboxHandle,
+  type IsolatedSandboxHandle,
   type SandboxProvider,
 } from "./SandboxProvider.js";
 
@@ -51,5 +53,50 @@ describe("createBindMountSandboxProvider", () => {
     });
 
     expect(provider.tag).toBe("bind-mount");
+  });
+});
+
+describe("createIsolatedSandboxProvider", () => {
+  const makeMockHandle = (): IsolatedSandboxHandle => ({
+    workspacePath: "/workspace",
+    exec: vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 })),
+    execStreaming: vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 })),
+    copyIn: vi.fn(async () => {}),
+    copyOut: vi.fn(async () => {}),
+    close: vi.fn(async () => {}),
+  });
+
+  it("returns a SandboxProvider with tag 'isolated'", () => {
+    const provider = createIsolatedSandboxProvider({
+      name: "test-isolated",
+      create: async () => makeMockHandle(),
+    });
+
+    expect(provider.tag).toBe("isolated");
+    expect(provider.name).toBe("test-isolated");
+  });
+
+  it("delegates create() to the config's create function", async () => {
+    const handle = makeMockHandle();
+    const createFn = vi.fn(async () => handle);
+    const provider = createIsolatedSandboxProvider({
+      name: "test-isolated",
+      create: createFn,
+    });
+
+    const options = { env: { FOO: "bar" } };
+    const result = await provider.create(options);
+
+    expect(createFn).toHaveBeenCalledWith(options);
+    expect(result).toBe(handle);
+  });
+
+  it("satisfies the SandboxProvider type", () => {
+    const provider: SandboxProvider = createIsolatedSandboxProvider({
+      name: "typed",
+      create: async () => makeMockHandle(),
+    });
+
+    expect(provider.tag).toBe("isolated");
   });
 });

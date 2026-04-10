@@ -16,11 +16,19 @@ export type {
 export type { PromptArgs } from "./PromptArgumentSubstitution.js";
 export { claudeCode, codex, pi } from "./AgentProvider.js";
 export type { AgentProvider, ClaudeCodeOptions } from "./AgentProvider.js";
-export { createBindMountSandboxProvider } from "./SandboxProvider.js";
+export {
+  createBindMountSandboxProvider,
+  createIsolatedSandboxProvider,
+} from "./SandboxProvider.js";
 export type {
   SandboxProvider,
+  BindMountSandboxProvider,
+  IsolatedSandboxProvider,
   BindMountSandboxHandle,
+  IsolatedSandboxHandle,
   ExecResult,
   BindMountCreateOptions,
   BindMountSandboxProviderConfig,
+  IsolatedCreateOptions,
+  IsolatedSandboxProviderConfig,
 } from "./SandboxProvider.js";
