@@ -1,4 +1,5 @@
 import * as sandcastle from "@ai-hero/sandcastle";
+import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 
 const MAX_ITERATIONS = 10;
 
@@ -7,6 +8,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
 
   // Phase 1: Plan — orchestrator agent analyzes issues and picks parallelizable work
   const plan = await sandcastle.run({
+    sandbox: docker(),
     name: "Planner",
     agent: sandcastle.claudeCode("claude-opus-4-6"),
     promptFile: "./.sandcastle/plan-prompt.md",
@@ -42,6 +44,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   const settled = await Promise.allSettled(
     issues.map(async (issue) => {
       await using sandbox = await sandcastle.createSandbox({
+        sandbox: docker(),
         branch: issue.branch,
         copyToSandbox: ["node_modules"],
         hooks: {
@@ -117,6 +120,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
 
   // Phase 3: Merge — one agent merges all branches together
   await sandcastle.run({
+    sandbox: docker(),
     name: "Merger",
     maxIterations: 10,
     agent: sandcastle.claudeCode("claude-opus-4-6"),
