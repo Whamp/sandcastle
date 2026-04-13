@@ -13,6 +13,10 @@
     "./sandboxes/docker": {
       "import": "./dist/sandboxes/docker.js",
       "types": "./dist/sandboxes/docker.d.ts"
+    },
+    "./sandboxes/vercel": {
+      "import": "./dist/sandboxes/vercel.js",
+      "types": "./dist/sandboxes/vercel.d.ts"
     }
   },
   "bin": {
@@ -62,6 +66,14 @@
     "@effect/printer": "^0.48.0",
     "@effect/printer-ansi": "^0.48.0",
     "effect": "^3.20.0"
+  },
+  "peerDependencies": {
+    "@vercel/sandbox": ">=1.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@vercel/sandbox": {
+      "optional": true
+    }
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,json,md}": "prettier --write"
