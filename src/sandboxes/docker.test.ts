@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { homedir } from "node:os";
 import { docker } from "./docker.js";
 
 describe("docker()", () => {
