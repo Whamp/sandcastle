@@ -215,7 +215,7 @@ if (closeResult.preservedWorktreePath) {
 | Option          | Type            | Default | Description                                                        |
 | --------------- | --------------- | ------- | ------------------------------------------------------------------ |
 | `branch`        | string          | —       | **Required.** Explicit branch for the sandbox                      |
-| `sandbox`       | SandboxProvider | —       | **Required.** Sandbox provider (e.g. `docker()`)                   |
+| `sandbox`       | SandboxProvider | —       | **Required.** Sandbox provider (e.g. `docker()`, `podman()`)       |
 | `hooks`         | object          | —       | Lifecycle hooks (`onSandboxReady`) — run once at creation time     |
 | `copyToSandbox` | string[]        | —       | Host-relative file paths to copy into the sandbox at creation time |
 
@@ -431,7 +431,7 @@ Removes the Docker image.
 | Option               | Type               | Default                       | Description                                                                                                             |
 | -------------------- | ------------------ | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `agent`              | AgentProvider      | —                             | **Required.** Agent provider (e.g. `claudeCode("claude-opus-4-6")`, `pi("claude-sonnet-4-6")`, `codex("gpt-5.4-mini")`) |
-| `sandbox`            | SandboxProvider    | —                             | **Required.** Sandbox provider (e.g. `docker()`, `docker({ imageName: "sandcastle:local" })`)                           |
+| `sandbox`            | SandboxProvider    | —                             | **Required.** Sandbox provider (e.g. `docker()`, `podman()`, `docker({ imageName: "sandcastle:local" })`)               |
 | `prompt`             | string             | —                             | Inline prompt (mutually exclusive with `promptFile`)                                                                    |
 | `promptFile`         | string             | —                             | Path to prompt file (mutually exclusive with `prompt`)                                                                  |
 | `maxIterations`      | number             | `1`                           | Maximum iterations to run                                                                                               |
@@ -735,6 +735,7 @@ const result = await run({
 For real-world examples, see:
 
 - [`src/sandboxes/docker.ts`](src/sandboxes/docker.ts) — bind-mount provider using Docker containers
+- [`src/sandboxes/podman.ts`](src/sandboxes/podman.ts) — bind-mount provider using Podman containers (with SELinux label support)
 - [`src/sandboxes/test-isolated.ts`](src/sandboxes/test-isolated.ts) — isolated provider using temp directories (used in tests)
 
 ## Configuration
