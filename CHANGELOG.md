@@ -1,5 +1,32 @@
 # @ai-hero/sandcastle
 
+## 0.4.1
+
+### Patch Changes
+
+- 0bb95e2: Add CODING_STANDARDS.md to reviewer-based templates (sequential-reviewer, parallel-planner-with-review) so the reviewer agent has concrete standards to enforce during code review.
+- bb444af: Add optional `mounts` config to `docker()` and `podman()` providers for mounting host directories (e.g. package manager caches) into sandbox containers. Each mount supports `hostPath` (with `~` expansion), `sandboxPath`, and optional `readonly` flag. Throws a clear error if a host path does not exist.
+- 16315da: Add Daytona isolated sandbox provider (`@ai-hero/sandcastle/sandboxes/daytona`)
+- a8e7d72: Add OpenCode as a built-in agent provider. The `opencode()` factory returns an `AgentProvider` that invokes `opencode run` with raw stdout passthrough (no JSON stream parsing). Includes CLI registry entry, init scaffold with Dockerfile template, and documentation.
+- 9d6dfba: Add `parallel-planner-with-review` template that combines parallel execution with per-branch code review using `createSandbox`. Also fix `maxIterations` defaults: sequential-reviewer reviewer 10→1, parallel-planner merger 10→1.
+- 859f2f5: Add Podman sandbox provider (`sandcastle/sandboxes/podman`) as a bind-mount provider mirroring Docker's behavior with SELinux label support
+- d917d69: Allow sandbox providers and agent providers to accept `env: Record<string, string>` at construction time. Provider env is merged with the `.sandcastle/.env` resolver output at launch, with provider values taking precedence. Agent and sandbox provider env must not have overlapping keys.
+- 6192024: Add `throwOnDuplicateWorktree` option to `RunOptions` and `CreateSandboxOptions`. When set to `false`, a worktree collision reuses the existing worktree instead of failing. Defaults to `true` (current behavior).
+- 22ec222: Add Vercel isolated sandbox provider (`sandcastle/sandboxes/vercel`) using `@vercel/sandbox` SDK
+- 0d08a33: Buffer Pi provider text deltas before display to prevent one-word-per-line terminal output in stdout mode
+- 448c9da: Support directories in `copyIn` for isolated sandbox providers and rename `copyOut` to `copyFileOut`
+- c30f690: Derive CLI version from package.json instead of hardcoding it.
+- 6e7738d: Fix sequential-reviewer template: replace broken prompt argument placeholders with self-contained issue selection and closure logic matching the simple-loop pattern
+- a43cfe4: Merge `exec` and `execStreaming` into a single `exec` method with an optional `onLine` callback in options.
+
+  **Breaking change (pre-1.0):** The `execStreaming` method has been removed from `BindMountSandboxHandle`, `IsolatedSandboxHandle`, and `SandboxService`. Use `exec(command, { onLine: (line) => ... })` instead.
+
+  **Migration:** Replace `handle.execStreaming(cmd, onLine, { cwd })` with `handle.exec(cmd, { onLine, cwd })`.
+
+- d1b75e4: Move `branchStrategy` from sandbox provider config to `run()` options. Branch strategy is now specified as an optional field on `RunOptions` instead of on provider factory functions like `docker()`. When omitted, defaults to `{ type: "head" }` for bind-mount providers and `{ type: "merge-to-head" }` for isolated providers. Using `{ type: "head" }` with an isolated provider now throws a clear runtime error.
+- 8265b88: Remove Docker-specific language from JSDoc comments on provider-agnostic APIs
+- 90c017d: Reset idle timer on any stdout line from the sandbox, not just parsed structured events. This prevents false idle timeouts for providers that emit non-JSON output (e.g. TUI-based agents).
+
 ## 0.4.0
 
 ### Minor Changes
