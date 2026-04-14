@@ -1,5 +1,5 @@
 import { execSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
@@ -244,13 +244,16 @@ describe("interactive()", () => {
       }),
     });
 
+    // Isolated provider with default strategy (merge-to-head) should work in principle,
+    // but head strategy is not supported
     await expect(
       interactive({
         agent: claudeCode("claude-opus-4-6"),
         sandbox: isolatedProvider,
         prompt: "test",
+        branchStrategy: { type: "head" },
       }),
-    ).rejects.toThrow("bind-mount");
+    ).rejects.toThrow("head branch strategy is not supported with isolated");
   });
 
   it("receives stdin/stdout/stderr streams in interactiveExec options", async () => {
@@ -272,5 +275,277 @@ describe("interactive()", () => {
     expect(receivedOpts!.stdout).toBe(process.stdout);
     expect(receivedOpts!.stderr).toBe(process.stderr);
     expect(receivedOpts!.cwd).toBeDefined();
+  });
+
+  // --- Prompt preprocessing tests ---
+
+  it("reads prompt from promptFile", async () => {
+    const promptPath = join(hostDir, "test-prompt.md");
+    writeFileSync(promptPath, "prompt from file");
+    const receivedArgs: string[] = [];
+
+    const provider = makeTestProvider(async (args, _opts) => {
+      receivedArgs.push(...args);
+      return { exitCode: 0 };
+    });
+
+    await interactive({
+      agent: claudeCode("claude-opus-4-6"),
+      sandbox: provider,
+      promptFile: promptPath,
+    });
+
+    expect(receivedArgs).toContain("prompt from file");
+  });
+
+  it("throws when both prompt and promptFile are provided", async () => {
+    const promptPath = join(hostDir, "test-prompt.md");
+    writeFileSync(promptPath, "prompt from file");
+
+    const provider = makeTestProvider(async () => ({ exitCode: 0 }));
+
+    await expect(
+      interactive({
+        agent: claudeCode("claude-opus-4-6"),
+        sandbox: provider,
+        prompt: "inline prompt",
+        promptFile: promptPath,
+      }),
+    ).rejects.toThrow("Cannot provide both");
+  });
+
+  it("substitutes {{KEY}} placeholders in prompts", async () => {
+    const receivedArgs: string[] = [];
+
+    const provider = makeTestProvider(async (args, _opts) => {
+      receivedArgs.push(...args);
+      return { exitCode: 0 };
+    });
+
+    await interactive({
+      agent: claudeCode("claude-opus-4-6"),
+      sandbox: provider,
+      prompt: "Fix bug in {{COMPONENT}}",
+      promptArgs: { COMPONENT: "LoginForm" },
+    });
+
+    // The substituted prompt should contain "LoginForm" not "{{COMPONENT}}"
+    const promptArg = receivedArgs[receivedArgs.length - 1]!;
+    expect(promptArg).toContain("LoginForm");
+    expect(promptArg).not.toContain("{{COMPONENT}}");
+  });
+
+  it("substitutes built-in SOURCE_BRANCH and TARGET_BRANCH args", async () => {
+    const receivedArgs: string[] = [];
+
+    const provider = makeTestProvider(async (args, _opts) => {
+      receivedArgs.push(...args);
+      return { exitCode: 0 };
+    });
+
+    // Get current branch name for verification
+    const currentBranch = execSync("git rev-parse --abbrev-ref HEAD", {
+      cwd: hostDir,
+      encoding: "utf-8",
+    }).trim();
+
+    await interactive({
+      agent: claudeCode("claude-opus-4-6"),
+      sandbox: provider,
+      prompt: "Branch is {{TARGET_BRANCH}}",
+    });
+
+    const promptArg = receivedArgs[receivedArgs.length - 1]!;
+    expect(promptArg).toContain(currentBranch);
+    expect(promptArg).not.toContain("{{TARGET_BRANCH}}");
+  });
+
+  it("expands shell expressions (!`command`) inside sandbox", async () => {
+    const receivedArgs: string[] = [];
+
+    const provider = makeTestProvider(async (args, _opts) => {
+      receivedArgs.push(...args);
+      return { exitCode: 0 };
+    });
+
+    await interactive({
+      agent: claudeCode("claude-opus-4-6"),
+      sandbox: provider,
+      prompt: "Current branch: !`git rev-parse --abbrev-ref HEAD`",
+    });
+
+    // The shell expression should be expanded to the actual branch name
+    const promptArg = receivedArgs[receivedArgs.length - 1]!;
+    expect(promptArg).not.toContain("!`");
+    // The expanded value should be a branch name (from the sandbox worktree)
+    expect(promptArg).toMatch(/Current branch: .+/);
+  });
+
+  it("throws when built-in prompt arg is overridden", async () => {
+    const provider = makeTestProvider(async () => ({ exitCode: 0 }));
+
+    await expect(
+      interactive({
+        agent: claudeCode("claude-opus-4-6"),
+        sandbox: provider,
+        prompt: "test",
+        promptArgs: { SOURCE_BRANCH: "custom" },
+      }),
+    ).rejects.toThrow("SOURCE_BRANCH");
+  });
+
+  // --- Branch strategy tests ---
+
+  it("head strategy: commits land on current branch directly", async () => {
+    const provider = makeTestProvider(async (_args, opts) => {
+      const cwd = opts.cwd!;
+      execSync('echo "head change" > headfile.txt', { cwd });
+      execSync("git add headfile.txt", { cwd });
+      execSync('git commit -m "head commit"', { cwd });
+      return { exitCode: 0 };
+    });
+
+    const currentBranch = execSync("git rev-parse --abbrev-ref HEAD", {
+      cwd: hostDir,
+      encoding: "utf-8",
+    }).trim();
+
+    const result = await interactive({
+      agent: claudeCode("claude-opus-4-6"),
+      sandbox: provider,
+      prompt: "test",
+      branchStrategy: { type: "head" },
+    });
+
+    expect(result.branch).toBe(currentBranch);
+    expect(result.commits.length).toBe(1);
+  });
+
+  it("merge-to-head strategy: commits merge back to head", async () => {
+    const provider = makeTestProvider(async (_args, opts) => {
+      const cwd = opts.cwd!;
+      execSync('echo "merge change" > mergefile.txt', { cwd });
+      execSync("git add mergefile.txt", { cwd });
+      execSync('git commit -m "merge commit"', { cwd });
+      return { exitCode: 0 };
+    });
+
+    const currentBranch = execSync("git rev-parse --abbrev-ref HEAD", {
+      cwd: hostDir,
+      encoding: "utf-8",
+    }).trim();
+
+    const result = await interactive({
+      agent: claudeCode("claude-opus-4-6"),
+      sandbox: provider,
+      prompt: "test",
+      branchStrategy: { type: "merge-to-head" },
+    });
+
+    // Branch should be the host's current branch (temp branch was merged + deleted)
+    expect(result.branch).toBe(currentBranch);
+    expect(result.commits.length).toBe(1);
+
+    // Verify the commit is on the current branch
+    const log = execSync("git log --oneline -1", {
+      cwd: hostDir,
+      encoding: "utf-8",
+    });
+    expect(log).toContain("merge commit");
+  });
+
+  it("branch strategy: commits land on explicit branch", async () => {
+    const provider = makeTestProvider(async (_args, opts) => {
+      const cwd = opts.cwd!;
+      execSync('echo "branch change" > branchfile.txt', { cwd });
+      execSync("git add branchfile.txt", { cwd });
+      execSync('git commit -m "branch commit"', { cwd });
+      return { exitCode: 0 };
+    });
+
+    const result = await interactive({
+      agent: claudeCode("claude-opus-4-6"),
+      sandbox: provider,
+      prompt: "test",
+      branchStrategy: { type: "branch", branch: "feature/test-branch" },
+    });
+
+    expect(result.branch).toBe("feature/test-branch");
+    expect(result.commits.length).toBe(1);
+
+    // Verify branch exists
+    const branches = execSync("git branch", {
+      cwd: hostDir,
+      encoding: "utf-8",
+    });
+    expect(branches).toContain("feature/test-branch");
+  });
+
+  // --- Hooks tests ---
+
+  it("runs onSandboxReady hooks before interactive session", async () => {
+    const executionOrder: string[] = [];
+
+    const provider = makeTestProvider(async (_args, opts) => {
+      // Check if the hook file exists (created by the hook)
+      const cwd = opts.cwd!;
+      const hookFileExists = existsSync(join(cwd, "hook-ran.txt"));
+      executionOrder.push(
+        hookFileExists ? "interactive-after-hook" : "interactive-no-hook",
+      );
+      return { exitCode: 0 };
+    });
+
+    await interactive({
+      agent: claudeCode("claude-opus-4-6"),
+      sandbox: provider,
+      prompt: "test",
+      hooks: {
+        onSandboxReady: [{ command: "touch hook-ran.txt" }],
+      },
+    });
+
+    expect(executionOrder).toEqual(["interactive-after-hook"]);
+  });
+
+  // --- copyToSandbox tests ---
+
+  it("throws when copyToSandbox used with head strategy", async () => {
+    const provider = makeTestProvider(async () => ({ exitCode: 0 }));
+
+    await expect(
+      interactive({
+        agent: claudeCode("claude-opus-4-6"),
+        sandbox: provider,
+        prompt: "test",
+        branchStrategy: { type: "head" },
+        copyToSandbox: ["node_modules"],
+      }),
+    ).rejects.toThrow("copyToSandbox is not supported with head");
+  });
+
+  it("copies files to worktree with copyToSandbox", async () => {
+    // Create a file to copy
+    const nodeModulesDir = join(hostDir, "node_modules");
+    execSync(`mkdir -p ${nodeModulesDir}`);
+    writeFileSync(join(nodeModulesDir, "test-dep.txt"), "dependency");
+
+    let copiedFileExists = false;
+
+    const provider = makeTestProvider(async (_args, opts) => {
+      const cwd = opts.cwd!;
+      copiedFileExists = existsSync(join(cwd, "node_modules", "test-dep.txt"));
+      return { exitCode: 0 };
+    });
+
+    await interactive({
+      agent: claudeCode("claude-opus-4-6"),
+      sandbox: provider,
+      prompt: "test",
+      branchStrategy: { type: "merge-to-head" },
+      copyToSandbox: ["node_modules"],
+    });
+
+    expect(copiedFileExists).toBe(true);
   });
 });
