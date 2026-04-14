@@ -519,6 +519,19 @@ agent: claudeCode("claude-opus-4-6", { effort: "high" });
 | `effort` | `"low"` \| `"medium"` \| `"high"` \| `"max"` | —       | Claude Code reasoning effort level (`max` is Opus only) |
 | `env`    | `Record<string, string>`                     | `{}`    | Environment variables injected by this agent provider   |
 
+### `CodexOptions`
+
+The `codex()` factory accepts an optional second argument for provider-specific options:
+
+```typescript
+agent: codex("gpt-5.4", { effort: "high" });
+```
+
+| Option   | Type                                           | Default | Description                                               |
+| -------- | ---------------------------------------------- | ------- | --------------------------------------------------------- |
+| `effort` | `"low"` \| `"medium"` \| `"high"` \| `"xhigh"` | —       | Codex reasoning effort level via `model_reasoning_effort` |
+| `env`    | `Record<string, string>`                       | `{}`    | Environment variables injected by this agent provider     |
+
 ### Provider `env`
 
 Both **agent providers** and **sandbox providers** accept an optional `env: Record<string, string>` in their options. These environment variables are merged with the `.sandcastle/.env` resolver output at launch time:

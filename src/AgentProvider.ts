@@ -193,6 +193,7 @@ const parseCodexStreamLine = (line: string): ParsedStreamEvent[] => {
 
 /** Options for the codex agent provider. */
 export interface CodexOptions {
+  readonly effort?: "low" | "medium" | "high" | "xhigh";
   /** Environment variables injected by this agent provider. */
   readonly env?: Record<string, string>;
 }
@@ -205,11 +206,18 @@ export const codex = (
   env: options?.env ?? {},
 
   buildPrintCommand(prompt: string): string {
-    return `codex exec --json --dangerously-bypass-approvals-and-sandbox -m ${shellEscape(model)} ${shellEscape(prompt)}`;
+    const effortFlag = options?.effort
+      ? ` -c ${shellEscape(`model_reasoning_effort="${options.effort}"`)}`
+      : "";
+    return `codex exec --json --dangerously-bypass-approvals-and-sandbox -m ${shellEscape(model)}${effortFlag} ${shellEscape(prompt)}`;
   },
 
   buildInteractiveArgs(_prompt: string): string[] {
-    return ["codex", "--model", model];
+    const args = ["codex", "--model", model];
+    if (options?.effort) {
+      args.push("-c", `model_reasoning_effort="${options.effort}"`);
+    }
+    return args;
   },
 
   parseStreamLine(line: string): ParsedStreamEvent[] {

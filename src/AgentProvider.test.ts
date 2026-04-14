@@ -339,12 +339,40 @@ describe("codex factory", () => {
     expect(command).toContain("-m 'gpt-5.4-mini'");
   });
 
+  it("buildPrintCommand includes model reasoning effort config when specified", () => {
+    const provider = codex("gpt-5.4-mini", { effort: "high" });
+    const command = provider.buildPrintCommand("do something");
+    expect(command).toContain(`-c 'model_reasoning_effort="high"'`);
+  });
+
+  it("buildPrintCommand omits model reasoning effort config when not specified", () => {
+    const provider = codex("gpt-5.4-mini");
+    const command = provider.buildPrintCommand("do something");
+    expect(command).not.toContain("model_reasoning_effort");
+  });
+
   it("buildInteractiveArgs includes the binary and model", () => {
     const provider = codex("gpt-5.4-mini");
     const args = provider.buildInteractiveArgs("");
     expect(args[0]).toBe("codex");
     expect(args).toContain("gpt-5.4-mini");
     expect(args).toContain("--model");
+  });
+
+  it("buildInteractiveArgs includes model reasoning effort config when specified", () => {
+    const provider = codex("gpt-5.4-mini", { effort: "xhigh" });
+    const args = provider.buildInteractiveArgs("");
+    expect(args).toContain("-c");
+    expect(args).toContain('model_reasoning_effort="xhigh"');
+  });
+
+  it("supports all codex effort levels", () => {
+    for (const effort of ["low", "medium", "high", "xhigh"] as const) {
+      const provider = codex("gpt-5.4-mini", { effort });
+      expect(provider.buildPrintCommand("test")).toContain(
+        `model_reasoning_effort="${effort}"`,
+      );
+    }
   });
 
   it("parseStreamLine extracts text and result from item.completed agent_message", () => {
