@@ -1,5 +1,16 @@
 # @ai-hero/sandcastle
 
+## 0.4.4
+
+### Patch Changes
+
+- 98d22da: Add `applyToHost` lifecycle callback to `SandboxInfo` so isolated providers can sync changes to the host worktree before host-side git operations. Fix `baseHead` recording to use the host worktree instead of the sandbox, ensuring correct commit collection after `syncOut` creates new SHAs via `format-patch`/`am`.
+- be40c63: `createSandbox()` now uses the shared `startSandbox` helper, adding support for isolated sandbox providers (e.g. Vercel, Daytona). Each `run()` call syncs commits back to the host worktree via `applyToHost`.
+- 0d393c9: Write SandboxError messages to the log file when run() fails in file-logging mode
+- c0a4db3: Isolated sandbox providers now create worktrees, matching the bind-mount lifecycle. This enables proper branch strategy support (merge-to-head and named branches) and failure-mode worktree preservation for isolated providers.
+- 973ed21: Run onSandboxReady hooks and shell expressions in parallel for faster environment setup
+- 4f99506: Allow optional whitespace inside prompt argument placeholders so that both `{{ARG}}` and `{{ ARG }}` resolve identically
+
 ## 0.4.3
 
 ### Patch Changes
