@@ -12,7 +12,7 @@ import {
   type DockerError,
 } from "./errors.js";
 import * as WorktreeManager from "./WorktreeManager.js";
-import { copyToSandbox } from "./CopyToSandbox.js";
+import { copyToWorkspace } from "./CopyToWorkspace.js";
 import { Display } from "./Display.js";
 import type {
   SandboxProvider,
@@ -146,7 +146,7 @@ export class SandboxConfig extends Context.Tag("SandboxConfig")<
     readonly env: Record<string, string>;
     readonly hostRepoDir: string;
     /** Paths relative to the host repo root to copy into the worktree before sandbox start. */
-    readonly copyToSandbox?: string[];
+    readonly copyToWorkspace?: string[];
     /** When specified, the run name is included in the auto-generated branch and worktree names. */
     readonly name?: string;
     /** Sandbox provider — delegates sandbox lifecycle to the provider. */
@@ -279,7 +279,7 @@ export const WorktreeDockerSandboxFactory = {
       const {
         env,
         hostRepoDir,
-        copyToSandbox: copyPaths,
+        copyToWorkspace: copyPaths,
         name,
         sandboxProvider,
         branchStrategy,
@@ -441,8 +441,12 @@ export const WorktreeDockerSandboxFactory = {
               Effect.flatMap((worktreeInfo) =>
                 (copyPaths && copyPaths.length > 0
                   ? display.spinner(
-                      "Copying to sandbox",
-                      copyToSandbox(copyPaths, hostRepoDir, worktreeInfo.path),
+                      "Copying to workspace",
+                      copyToWorkspace(
+                        copyPaths,
+                        hostRepoDir,
+                        worktreeInfo.path,
+                      ),
                     )
                   : Effect.succeed(undefined)
                 ).pipe(Effect.map(() => worktreeInfo)),

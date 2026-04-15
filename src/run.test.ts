@@ -240,18 +240,18 @@ describe("RunOptions", () => {
   });
 });
 
-describe("copyToSandbox with head branch strategy", () => {
-  it("throws a runtime error when copyToSandbox is provided with head strategy", async () => {
+describe("copyToWorkspace with head branch strategy", () => {
+  it("throws a runtime error when copyToWorkspace is provided with head strategy", async () => {
     await expect(
       run({
         agent: claudeCode("claude-opus-4-6"),
         sandbox: testSandbox,
         prompt: "test",
         branchStrategy: { type: "head" },
-        copyToSandbox: [".env"],
+        copyToWorkspace: [".env"],
       }),
     ).rejects.toThrow(
-      "copyToSandbox is not supported with head branch strategy",
+      "copyToWorkspace is not supported with head branch strategy",
     );
   });
 });

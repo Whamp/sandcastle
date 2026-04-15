@@ -62,7 +62,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
           sandbox: docker(),
           branch: issue.branch,
           throwOnDuplicateWorktree: false,
-          copyToSandbox: ["node_modules"],
+          copyToWorkspace: ["node_modules"],
           hooks: {
             onSandboxReady: [{ command: "npm install && npm run build" }],
           },

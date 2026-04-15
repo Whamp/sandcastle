@@ -365,7 +365,7 @@ describe("WorktreeDockerSandboxFactory", () => {
     );
   });
 
-  it("logs copy-to-sandbox as a spinner when copyToSandbox paths are provided", async () => {
+  it("logs copy-to-sandbox as a spinner when copyToWorkspace paths are provided", async () => {
     const ref = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]);
     const layerWithCopy = Layer.provide(
       WorktreeDockerSandboxFactory.layer,
@@ -373,7 +373,7 @@ describe("WorktreeDockerSandboxFactory", () => {
         Layer.succeed(SandboxConfig, {
           env: {},
           hostRepoDir,
-          copyToSandbox: ["node_modules"],
+          copyToWorkspace: ["node_modules"],
           sandboxProvider: mockProvider.provider,
           branchStrategy: { type: "merge-to-head" },
         }),
@@ -382,8 +382,8 @@ describe("WorktreeDockerSandboxFactory", () => {
       ),
     );
 
-    vi.mock("./CopyToSandbox.js", () => ({
-      copyToSandbox: vi.fn(() => Effect.succeed(undefined)),
+    vi.mock("./CopyToWorkspace.js", () => ({
+      copyToWorkspace: vi.fn(() => Effect.succeed(undefined)),
     }));
 
     await Effect.runPromise(
@@ -395,7 +395,7 @@ describe("WorktreeDockerSandboxFactory", () => {
 
     const entries = await Effect.runPromise(Ref.get(ref));
     const spinnerEntry = entries.find(
-      (e) => e._tag === "spinner" && e.message === "Copying to sandbox",
+      (e) => e._tag === "spinner" && e.message === "Copying to workspace",
     );
     expect(spinnerEntry).toBeDefined();
   });
@@ -611,14 +611,14 @@ const commitFile = async (
 describe("WorktreeDockerSandboxFactory — isolated providers", () => {
   const tempDirs: string[] = [];
 
-  const makeIsolatedLayer = (hostRepoDir: string, copyToSandbox?: string[]) =>
+  const makeIsolatedLayer = (hostRepoDir: string, copyToWorkspace?: string[]) =>
     Layer.provide(
       WorktreeDockerSandboxFactory.layer,
       Layer.mergeAll(
         Layer.succeed(SandboxConfig, {
           env: {},
           hostRepoDir,
-          copyToSandbox,
+          copyToWorkspace,
           sandboxProvider: testIsolated(),
           branchStrategy: { type: "merge-to-head" },
         }),
@@ -644,7 +644,7 @@ describe("WorktreeDockerSandboxFactory — isolated providers", () => {
     tempDirs.length = 0;
   });
 
-  it("copies copyToSandbox files into the isolated sandbox via copyIn", async () => {
+  it("copies copyToWorkspace files into the isolated sandbox via copyIn", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "sandcastle-test-"));
     tempDirs.push(hostDir);
     await initRepo(hostDir);
@@ -671,7 +671,7 @@ describe("WorktreeDockerSandboxFactory — isolated providers", () => {
     expect(fileContent).toBe("extra content");
   });
 
-  it("copies nested copyToSandbox paths, creating parent directories", async () => {
+  it("copies nested copyToWorkspace paths, creating parent directories", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "sandcastle-test-"));
     tempDirs.push(hostDir);
     await initRepo(hostDir);
@@ -701,7 +701,7 @@ describe("WorktreeDockerSandboxFactory — isolated providers", () => {
     expect(fileContent).toBe('{"key":"value"}');
   });
 
-  it("works without copyToSandbox (no regression)", async () => {
+  it("works without copyToWorkspace (no regression)", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "sandcastle-test-"));
     tempDirs.push(hostDir);
     await initRepo(hostDir);
@@ -725,7 +725,7 @@ describe("WorktreeDockerSandboxFactory — isolated providers", () => {
     expect(fileContent).toBe("hello world");
   });
 
-  it("copies copyToSandbox directories into the isolated sandbox via copyIn", async () => {
+  it("copies copyToWorkspace directories into the isolated sandbox via copyIn", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "sandcastle-test-"));
     tempDirs.push(hostDir);
     await initRepo(hostDir);
@@ -758,7 +758,7 @@ describe("WorktreeDockerSandboxFactory — isolated providers", () => {
     expect(contentB).toBe('{"b":2}');
   });
 
-  it("skips missing copyToSandbox paths without error", async () => {
+  it("skips missing copyToWorkspace paths without error", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "sandcastle-test-"));
     tempDirs.push(hostDir);
     await initRepo(hostDir);

@@ -36,7 +36,7 @@ const hooks = {
 // Copy node_modules from the host into the worktree before each sandbox
 // starts. Avoids a full npm install from scratch; the hook above handles
 // platform-specific binaries and any packages added since the last copy.
-const copyToSandbox = ["node_modules"];
+const copyToWorkspace = ["node_modules"];
 
 // ---------------------------------------------------------------------------
 // Main loop
@@ -56,7 +56,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   const plan = await sandcastle.run({
     hooks,
-    copyToSandbox,
+    copyToWorkspace,
     sandbox: docker(),
     branchStrategy: { type: "merge-to-head" },
     name: "planner",
@@ -107,7 +107,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     issues.map((issue) =>
       sandcastle.run({
         hooks,
-        copyToSandbox,
+        copyToWorkspace,
         // Each agent starts on its own branch via branchStrategy on run().
         sandbox: docker(),
         branchStrategy: { type: "branch", branch: issue.branch },
@@ -182,7 +182,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   await sandcastle.run({
     hooks,
-    copyToSandbox,
+    copyToWorkspace,
     sandbox: docker(),
     branchStrategy: { type: "merge-to-head" },
     name: "merger",

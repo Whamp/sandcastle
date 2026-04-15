@@ -167,7 +167,7 @@ const result = await run({
 
   // Host-relative file paths to copy into the sandbox before the container starts.
   // Not supported with branchStrategy: { type: "head" }.
-  copyToSandbox: [".env"],
+  copyToWorkspace: [".env"],
 
   // How to record progress. Default: write to a file under .sandcastle/logs/
   logging: { type: "file", path: ".sandcastle/logs/my-run.log" },
@@ -265,7 +265,7 @@ if (closeResult.preservedWorktreePath) {
 | `branch`                   | string          | —       | **Required.** Explicit branch for the sandbox                            |
 | `sandbox`                  | SandboxProvider | —       | **Required.** Sandbox provider (e.g. `docker()`, `podman()`)             |
 | `hooks`                    | object          | —       | Lifecycle hooks (`onSandboxReady`) — run once at creation time           |
-| `copyToSandbox`            | string[]        | —       | Host-relative file paths to copy into the sandbox at creation time       |
+| `copyToWorkspace`          | string[]        | —       | Host-relative file paths to copy into the sandbox at creation time       |
 | `throwOnDuplicateWorktree` | boolean         | `true`  | When `false`, reuse an existing worktree instead of failing on collision |
 
 #### `Sandbox`
@@ -506,7 +506,7 @@ Removes the Podman image.
 | `name`                     | string             | —                             | Display name for the run, shown as a prefix in log output                                                                                                  |
 | `promptArgs`               | PromptArgs         | —                             | Key-value map for `{{KEY}}` placeholder substitution                                                                                                       |
 | `branchStrategy`           | BranchStrategy     | per-provider default          | Branch strategy: `{ type: 'head' }`, `{ type: 'merge-to-head' }`, or `{ type: 'branch', branch: '…' }`                                                     |
-| `copyToSandbox`            | string[]           | —                             | Host-relative file paths to copy into the sandbox before start (not supported with `branchStrategy: { type: 'head' }`)                                     |
+| `copyToWorkspace`          | string[]           | —                             | Host-relative file paths to copy into the sandbox before start (not supported with `branchStrategy: { type: 'head' }`)                                     |
 | `logging`                  | object             | file (auto-generated)         | `{ type: 'file', path }` or `{ type: 'stdout' }`                                                                                                           |
 | `completionSignal`         | string \| string[] | `<promise>COMPLETE</promise>` | String or array of strings the agent emits to stop the iteration loop early                                                                                |
 | `idleTimeoutSeconds`       | number             | `600`                         | Idle timeout in seconds — resets on each agent output event                                                                                                |

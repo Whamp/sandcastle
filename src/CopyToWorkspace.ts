@@ -8,7 +8,7 @@ import { Effect } from "effect";
  * using `cp -R --reflink=auto` for copy-on-write when the filesystem supports it.
  * Missing paths are silently skipped.
  */
-export const copyToSandbox = (
+export const copyToWorkspace = (
   paths: string[],
   hostRepoDir: string,
   worktreePath: string,

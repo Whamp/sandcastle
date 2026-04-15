@@ -41,7 +41,7 @@ const hooks = {
 // Copy node_modules from the host into the worktree before each sandbox
 // starts. Avoids a full npm install from scratch; the hook above handles
 // platform-specific binaries and any packages added since the last copy.
-const copyToSandbox = ["node_modules"];
+const copyToWorkspace = ["node_modules"];
 
 // Cap the number of concurrent sandboxes to avoid resource exhaustion.
 const MAX_CONCURRENCY = 4;
@@ -64,7 +64,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   const plan = await sandcastle.run({
     hooks,
-    copyToSandbox,
+    copyToWorkspace,
     sandbox: docker(),
     branchStrategy: { type: "merge-to-head" },
     name: "planner",
@@ -142,7 +142,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
           branch: issue.branch,
           sandbox: docker(),
           hooks,
-          copyToSandbox,
+          copyToWorkspace,
         });
 
         try {
@@ -228,7 +228,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   await sandcastle.run({
     hooks,
-    copyToSandbox,
+    copyToWorkspace,
     sandbox: docker(),
     branchStrategy: { type: "merge-to-head" },
     name: "merger",

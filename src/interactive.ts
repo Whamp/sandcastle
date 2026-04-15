@@ -19,7 +19,7 @@ import type {
 } from "./SandboxProvider.js";
 import { resolveEnv } from "./EnvResolver.js";
 import { mergeProviderEnv } from "./mergeProviderEnv.js";
-import { copyToSandbox } from "./CopyToSandbox.js";
+import { copyToWorkspace } from "./CopyToWorkspace.js";
 import { startSandbox } from "./startSandbox.js";
 import { syncOut } from "./syncOut.js";
 import * as WorktreeManager from "./WorktreeManager.js";
@@ -48,7 +48,7 @@ export interface InteractiveOptions {
   /** Hooks to run during sandbox lifecycle */
   readonly hooks?: SandboxHooks;
   /** Paths relative to the host repo root to copy into the worktree before sandbox start. */
-  readonly copyToSandbox?: string[];
+  readonly copyToWorkspace?: string[];
   /** Key-value map for {{KEY}} placeholder substitution in prompts */
   readonly promptArgs?: PromptArgs;
   /** Environment variables to inject into the sandbox. */
@@ -96,14 +96,14 @@ export const interactive = async (
     );
   }
 
-  // Validate: copyToSandbox is incompatible with head strategy
+  // Validate: copyToWorkspace is incompatible with head strategy
   if (
     branchStrategy.type === "head" &&
-    options.copyToSandbox &&
-    options.copyToSandbox.length > 0
+    options.copyToWorkspace &&
+    options.copyToWorkspace.length > 0
   ) {
     throw new Error(
-      "copyToSandbox is not supported with head branch strategy. " +
+      "copyToWorkspace is not supported with head branch strategy. " +
         "In head mode the host working directory is bind-mounted directly.",
     );
   }
@@ -189,12 +189,12 @@ export const interactive = async (
       // Copy files to worktree (bind-mount only, non-head)
       if (
         sandboxProvider.tag === "bind-mount" &&
-        options.copyToSandbox &&
-        options.copyToSandbox.length > 0
+        options.copyToWorkspace &&
+        options.copyToWorkspace.length > 0
       ) {
-        yield* d.taskLog("Copying files to sandbox", () =>
-          copyToSandbox(
-            options.copyToSandbox!,
+        yield* d.taskLog("Copying files to workspace", () =>
+          copyToWorkspace(
+            options.copyToWorkspace!,
             hostRepoDir,
             worktreeInfo!.path,
           ),
@@ -211,7 +211,7 @@ export const interactive = async (
           provider: sandboxProvider,
           hostRepoDir: worktreeInfo!.path,
           env: effectiveEnv,
-          copyPaths: options.copyToSandbox,
+          copyPaths: options.copyToWorkspace,
         }),
       );
       handle = startResult.handle;

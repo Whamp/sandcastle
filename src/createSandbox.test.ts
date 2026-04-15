@@ -1093,7 +1093,7 @@ describe("createSandbox", () => {
     }
   });
 
-  it("copyToSandbox copies files into the worktree at creation time", async () => {
+  it("copyToWorkspace copies files into the worktree at creation time", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "sandbox-test-"));
     await initRepo(hostDir);
     await commitFile(hostDir, "init.txt", "init", "initial commit");
@@ -1104,7 +1104,7 @@ describe("createSandbox", () => {
     const sandbox = await createSandbox({
       branch: "test-copy",
       sandbox: testSandbox,
-      copyToSandbox: ["config.json"],
+      copyToWorkspace: ["config.json"],
       _test: {
         hostRepoDir: hostDir,
         buildSandboxLayer: (sandboxDir) => makeLocalSandboxLayer(sandboxDir),

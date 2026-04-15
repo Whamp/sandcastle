@@ -11,7 +11,7 @@ const { commits, branch } = await sandcastle.interactive({
   name: "Test",
   agent: sandcastle.claudeCode("claude-sonnet-4-6"),
   prompt: "Add /foobar to the .gitignore, then commit.",
-  copyToSandbox: ["node_modules"],
+  copyToWorkspace: ["node_modules"],
 });
 
 console.log("Commits:", commits);

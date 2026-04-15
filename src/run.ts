@@ -161,7 +161,7 @@ export interface RunOptions {
   /** Optional name for the run, shown as a prefix in log output */
   readonly name?: string;
   /** Paths relative to the host repo root to copy into the worktree before sandbox start. */
-  readonly copyToSandbox?: string[];
+  readonly copyToWorkspace?: string[];
   /** Branch strategy — controls how the agent's changes relate to branches.
    * Defaults to { type: "head" } for bind-mount providers and { type: "merge-to-head" } for isolated providers. */
   readonly branchStrategy?: BranchStrategy;
@@ -210,14 +210,14 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
     );
   }
 
-  // Validate: copyToSandbox is incompatible with head strategy
+  // Validate: copyToWorkspace is incompatible with head strategy
   if (
     effectiveBranchType === "head" &&
-    options.copyToSandbox &&
-    options.copyToSandbox.length > 0
+    options.copyToWorkspace &&
+    options.copyToWorkspace.length > 0
   ) {
     throw new Error(
-      "copyToSandbox is not supported with head branch strategy. " +
+      "copyToWorkspace is not supported with head branch strategy. " +
         "In head mode the host working directory is bind-mounted directly.",
     );
   }
@@ -296,7 +296,7 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
       Layer.succeed(SandboxConfig, {
         env,
         hostRepoDir,
-        copyToSandbox: options.copyToSandbox,
+        copyToWorkspace: options.copyToWorkspace,
         name: options.name,
         sandboxProvider: options.sandbox,
         branchStrategy,

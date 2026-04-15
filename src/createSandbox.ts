@@ -37,7 +37,7 @@ import type {
 import { startSandbox } from "./startSandbox.js";
 import { syncOut } from "./syncOut.js";
 import * as WorktreeManager from "./WorktreeManager.js";
-import { copyToSandbox } from "./CopyToSandbox.js";
+import { copyToWorkspace } from "./CopyToWorkspace.js";
 
 export interface CreateSandboxOptions {
   /** Explicit branch for the worktree (required). */
@@ -52,7 +52,7 @@ export interface CreateSandboxOptions {
     }>;
   };
   /** Paths relative to the host repo root to copy into the worktree at creation time. */
-  readonly copyToSandbox?: string[];
+  readonly copyToWorkspace?: string[];
   /** When false, reuse an existing worktree instead of failing on collision. Default: true. */
   readonly throwOnDuplicateWorktree?: boolean;
   /** @internal Test-only overrides to bypass the sandbox provider. */
@@ -171,12 +171,12 @@ export const createSandbox = async (
 
   // 2. Copy files if requested (bind-mount only; isolated providers handle this in startSandbox)
   if (
-    options.copyToSandbox &&
-    options.copyToSandbox.length > 0 &&
+    options.copyToWorkspace &&
+    options.copyToWorkspace.length > 0 &&
     options.sandbox.tag !== "isolated"
   ) {
     await Effect.runPromise(
-      copyToSandbox(options.copyToSandbox, hostRepoDir, worktreePath),
+      copyToWorkspace(options.copyToWorkspace, hostRepoDir, worktreePath),
     );
   }
 
@@ -211,7 +211,7 @@ export const createSandbox = async (
         provider,
         hostRepoDir: worktreePath,
         env,
-        copyPaths: options.copyToSandbox,
+        copyPaths: options.copyToWorkspace,
       });
     } else {
       startEffect = resolveGitMounts(join(hostRepoDir, ".git")).pipe(

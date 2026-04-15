@@ -495,10 +495,10 @@ describe("InitService scaffold", () => {
       expect(joined).toContain("onSandboxReady");
     });
 
-    it("non-blank template mentions copyToSandbox and node_modules", () => {
+    it("non-blank template mentions copyToWorkspace and node_modules", () => {
       const lines = getNextStepsLines("simple-loop", "main.mts");
       const joined = lines.join("\n");
-      expect(joined).toContain("copyToSandbox");
+      expect(joined).toContain("copyToWorkspace");
       expect(joined).toContain("node_modules");
     });
 
