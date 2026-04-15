@@ -1,8 +1,8 @@
 import { NodeContext, NodeFileSystem } from "@effect/platform-node";
 import { join } from "node:path";
-import { Effect, Ref } from "effect";
+import { Effect } from "effect";
 import type { AgentProvider } from "./AgentProvider.js";
-import { SilentDisplay, type DisplayEntry } from "./Display.js";
+import { ClackDisplay, Display } from "./Display.js";
 import { preprocessPrompt } from "./PromptPreprocessor.js";
 import { resolvePrompt } from "./PromptResolver.js";
 import {
@@ -108,88 +108,74 @@ export const interactive = async (
     );
   }
 
-  const branch: string | undefined =
-    branchStrategy.type === "branch" ? branchStrategy.branch : undefined;
-
-  const hostRepoDir = process.cwd();
-
-  // 1. Resolve prompt (from string or file)
-  const rawPrompt = await Effect.runPromise(
-    resolvePrompt({ prompt, promptFile }).pipe(
-      Effect.provide(NodeContext.layer),
-    ),
-  );
-
-  // 2. Resolve env vars
-  const resolvedEnv = await Effect.runPromise(
-    resolveEnv(hostRepoDir).pipe(Effect.provide(NodeContext.layer)),
-  );
-  const env = mergeProviderEnv({
-    resolvedEnv,
-    agentProviderEnv: provider.env,
-    sandboxProviderEnv: options.sandbox.env,
-  });
-  const effectiveEnv = { ...env, ...(options.env ?? {}) };
-
-  // 3. Capture host's current branch
-  const currentHostBranch = await Effect.runPromise(
-    getCurrentBranch(hostRepoDir),
-  );
-
-  const resolvedBranch =
-    branchStrategy.type === "head"
-      ? currentHostBranch
-      : (branch ?? generateTempBranchName(options.name));
-
-  // 4. Validate and substitute prompt args
-  const userArgs = options.promptArgs ?? {};
-  // SilentDisplay for prompt arg substitution (warnings go nowhere for interactive)
-  const displayRef = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]);
-  const displayLayer = SilentDisplay.layer(displayRef);
-
-  const substitutedPrompt = await Effect.runPromise(
-    Effect.gen(function* () {
-      yield* validateNoBuiltInArgOverride(userArgs);
-      const effectiveArgs = {
-        SOURCE_BRANCH: resolvedBranch,
-        TARGET_BRANCH: currentHostBranch,
-        ...userArgs,
-      };
-      const builtInArgKeysSet = new Set<string>(BUILT_IN_PROMPT_ARG_KEYS);
-      return yield* substitutePromptArgs(
-        rawPrompt,
-        effectiveArgs,
-        builtInArgKeysSet,
-      );
-    }).pipe(Effect.provide(displayLayer)),
-  );
-
-  // 5. Validate buildInteractiveArgs is available
+  // Validate buildInteractiveArgs is available
   if (!provider.buildInteractiveArgs) {
     throw new Error(
       `Agent provider "${provider.name}" does not support buildInteractiveArgs, required for interactive sessions.`,
     );
   }
 
-  // In head mode, pass the host branch so SandboxLifecycle skips the merge step.
-  const lifecycleBranch =
-    branchStrategy.type === "head" ? currentHostBranch : branch;
+  const branch: string | undefined =
+    branchStrategy.type === "branch" ? branchStrategy.branch : undefined;
 
-  // 6. Create sandbox and run interactive session
-  // We manage the lifecycle manually (like SandboxFactory) to access the raw
-  // handle for interactiveExec, while delegating git operations to withSandboxLifecycle.
+  const hostRepoDir = process.cwd();
   const isHeadMode = branchStrategy.type === "head";
   const sandboxProvider = options.sandbox;
 
-  let worktreeInfo: WorktreeManager.WorktreeInfo | undefined;
-  let handle: BindMountSandboxHandle | IsolatedSandboxHandle | undefined;
-  let preservedWorktreePath: string | undefined;
-  let exitCode = 1;
+  const inner = Effect.gen(function* () {
+    const d = yield* Display;
 
-  try {
-    // Create worktree (unless head mode)
+    // 1. Resolve prompt (from string or file)
+    const rawPrompt = yield* resolvePrompt({ prompt, promptFile });
+
+    // 2. Resolve env vars
+    const resolvedEnv = yield* resolveEnv(hostRepoDir);
+    const env = mergeProviderEnv({
+      resolvedEnv,
+      agentProviderEnv: provider.env,
+      sandboxProviderEnv: sandboxProvider.env,
+    });
+    const effectiveEnv = { ...env, ...(options.env ?? {}) };
+
+    // 3. Capture host's current branch
+    const currentHostBranch = yield* getCurrentBranch(hostRepoDir);
+
+    const resolvedBranch =
+      branchStrategy.type === "head"
+        ? currentHostBranch
+        : (branch ?? generateTempBranchName(options.name));
+
+    // 4. Validate and substitute prompt args
+    const userArgs = options.promptArgs ?? {};
+    yield* validateNoBuiltInArgOverride(userArgs);
+    const effectiveArgs = {
+      SOURCE_BRANCH: resolvedBranch,
+      TARGET_BRANCH: currentHostBranch,
+      ...userArgs,
+    };
+    const builtInArgKeysSet = new Set<string>(BUILT_IN_PROMPT_ARG_KEYS);
+    const substitutedPrompt = yield* substitutePromptArgs(
+      rawPrompt,
+      effectiveArgs,
+      builtInArgKeysSet,
+    );
+
+    // In head mode, pass the host branch so SandboxLifecycle skips the merge step.
+    const lifecycleBranch = isHeadMode ? currentHostBranch : branch;
+
+    // Display intro and summary
+    yield* d.intro(options.name ?? "sandcastle interactive");
+    yield* d.summary("Interactive Session", {
+      Agent: options.name ?? provider.name,
+      Sandbox: sandboxProvider.name,
+      Branch: resolvedBranch,
+    });
+
+    // 5. Create worktree (unless head mode)
+    let worktreeInfo: WorktreeManager.WorktreeInfo | undefined;
+
     if (!isHeadMode) {
-      worktreeInfo = await Effect.runPromise(
+      worktreeInfo = yield* d.taskLog("Creating worktree", () =>
         WorktreeManager.pruneStale(hostRepoDir).pipe(
           Effect.catchAll(() => Effect.void),
           Effect.andThen(
@@ -197,7 +183,6 @@ export const interactive = async (
               ? WorktreeManager.create(hostRepoDir, { branch })
               : WorktreeManager.create(hostRepoDir, { name: options.name }),
           ),
-          Effect.provide(NodeFileSystem.layer),
         ),
       );
 
@@ -207,15 +192,21 @@ export const interactive = async (
         options.copyToSandbox &&
         options.copyToSandbox.length > 0
       ) {
-        await Effect.runPromise(
-          copyToSandbox(options.copyToSandbox, hostRepoDir, worktreeInfo.path),
+        yield* d.taskLog("Copying files to sandbox", () =>
+          copyToSandbox(
+            options.copyToSandbox!,
+            hostRepoDir,
+            worktreeInfo!.path,
+          ),
         );
       }
     }
 
-    // Start sandbox
+    // 6. Start sandbox
+    let handle: BindMountSandboxHandle | IsolatedSandboxHandle;
+
     if (sandboxProvider.tag === "isolated") {
-      const startResult = await Effect.runPromise(
+      const startResult = yield* d.taskLog("Starting sandbox", () =>
         startSandbox({
           provider: sandboxProvider,
           hostRepoDir: worktreeInfo!.path,
@@ -226,10 +217,8 @@ export const interactive = async (
       handle = startResult.handle;
     } else {
       const gitPath = join(hostRepoDir, ".git");
-      const gitMounts = await Effect.runPromise(
-        resolveGitMounts(gitPath).pipe(Effect.provide(NodeFileSystem.layer)),
-      );
-      const startResult = await Effect.runPromise(
+      const gitMounts = yield* resolveGitMounts(gitPath);
+      const startResult = yield* d.taskLog("Starting sandbox", () =>
         startSandbox({
           provider: sandboxProvider,
           hostRepoDir,
@@ -242,97 +231,118 @@ export const interactive = async (
       handle = startResult.handle;
     }
 
-    // Check interactiveExec is available
-    if (!handle.interactiveExec) {
-      throw new Error(
-        `Sandbox provider does not support interactiveExec. ` +
-          `The provider must implement the optional interactiveExec method to use interactive().`,
-      );
-    }
-    const interactiveExecFn = handle.interactiveExec.bind(handle);
-
-    // Build sandbox layer and run withSandboxLifecycle
-    const sandboxLayer = makeSandboxLayerFromHandle(handle);
-    const workspacePath = handle.workspacePath;
-
-    const applyToHost =
-      sandboxProvider.tag === "isolated" && worktreeInfo
-        ? () => syncOut(worktreeInfo!.path, handle as IsolatedSandboxHandle)
-        : () => Effect.void;
-
-    const lifecycleEffect = withSandboxLifecycle(
-      {
-        hostRepoDir,
-        sandboxRepoDir: workspacePath,
-        hooks,
-        branch: lifecycleBranch,
-        hostWorktreePath: isHeadMode ? hostRepoDir : worktreeInfo?.path,
-        applyToHost,
-      },
-      (ctx) =>
-        Effect.gen(function* () {
-          // Preprocess prompt (expand !`command` shell expressions inside sandbox)
-          const fullPrompt = yield* preprocessPrompt(
-            substitutedPrompt,
-            ctx.sandbox,
-            ctx.sandboxRepoDir,
-          );
-
-          // Build interactive args and run the session
-          const interactiveArgs = provider.buildInteractiveArgs!(fullPrompt);
-          const result = yield* Effect.promise(() =>
-            interactiveExecFn(interactiveArgs, {
-              stdin: process.stdin,
-              stdout: process.stdout,
-              stderr: process.stderr,
-              cwd: workspacePath,
-            }),
-          );
-
-          return result.exitCode;
-        }),
-    );
-
-    const lifecycleResult = await Effect.runPromise(
-      lifecycleEffect.pipe(
-        Effect.provide(sandboxLayer),
-        Effect.provide(displayLayer),
-      ),
-    );
-
-    exitCode = lifecycleResult.result;
-
-    // Check for uncommitted changes (worktree mode only)
-    if (worktreeInfo) {
-      const hasUncommitted = await Effect.runPromise(
-        WorktreeManager.hasUncommittedChanges(worktreeInfo.path).pipe(
-          Effect.catchAll(() => Effect.succeed(false)),
-        ),
-      );
-      if (hasUncommitted) {
-        preservedWorktreePath = worktreeInfo.path;
+    // Run lifecycle with guaranteed cleanup of handle and worktree
+    return yield* Effect.gen(function* () {
+      // Check interactiveExec is available
+      if (!handle.interactiveExec) {
+        throw new Error(
+          `Sandbox provider does not support interactiveExec. ` +
+            `The provider must implement the optional interactiveExec method to use interactive().`,
+        );
       }
-    }
+      const interactiveExecFn = handle.interactiveExec.bind(handle);
 
-    return {
-      commits: lifecycleResult.commits,
-      branch: lifecycleResult.branch,
-      preservedWorktreePath,
-      exitCode,
-    };
-  } finally {
-    // Clean up: close handle
-    if (handle) {
-      await handle.close().catch(() => {});
-    }
+      // Build sandbox layer and run withSandboxLifecycle
+      const sandboxLayer = makeSandboxLayerFromHandle(handle);
+      const workspacePath = handle.workspacePath;
 
-    // Remove worktree if not preserved
-    if (worktreeInfo && !preservedWorktreePath) {
-      await Effect.runPromise(
-        WorktreeManager.remove(worktreeInfo.path).pipe(
-          Effect.catchAll(() => Effect.void),
-        ),
+      const applyToHost =
+        sandboxProvider.tag === "isolated" && worktreeInfo
+          ? () => syncOut(worktreeInfo!.path, handle as IsolatedSandboxHandle)
+          : () => Effect.void;
+
+      const lifecycleEffect = withSandboxLifecycle(
+        {
+          hostRepoDir,
+          sandboxRepoDir: workspacePath,
+          hooks,
+          branch: lifecycleBranch,
+          hostWorktreePath: isHeadMode ? hostRepoDir : worktreeInfo?.path,
+          applyToHost,
+        },
+        (ctx) =>
+          Effect.gen(function* () {
+            // Preprocess prompt (expand !`command` shell expressions inside sandbox)
+            const fullPrompt = yield* preprocessPrompt(
+              substitutedPrompt,
+              ctx.sandbox,
+              ctx.sandboxRepoDir,
+            );
+
+            // Build interactive args and run the session
+            const interactiveArgs = provider.buildInteractiveArgs!(fullPrompt);
+            const result = yield* Effect.promise(() =>
+              interactiveExecFn(interactiveArgs, {
+                stdin: process.stdin,
+                stdout: process.stdout,
+                stderr: process.stderr,
+                cwd: workspacePath,
+              }),
+            );
+
+            return result.exitCode;
+          }),
       );
-    }
-  }
+
+      const lifecycleResult = yield* lifecycleEffect.pipe(
+        Effect.provide(sandboxLayer),
+      );
+
+      const exitCode = lifecycleResult.result;
+
+      // Check for uncommitted changes (worktree mode only)
+      let preservedWorktreePath: string | undefined;
+      if (worktreeInfo) {
+        const hasUncommitted = yield* WorktreeManager.hasUncommittedChanges(
+          worktreeInfo.path,
+        ).pipe(Effect.catchAll(() => Effect.succeed(false)));
+        if (hasUncommitted) {
+          preservedWorktreePath = worktreeInfo.path;
+        }
+      }
+
+      // Clean up worktree if not preserved
+      if (worktreeInfo && !preservedWorktreePath) {
+        yield* WorktreeManager.remove(worktreeInfo.path).pipe(
+          Effect.catchAll(() => Effect.void),
+        );
+      }
+
+      // Final summary
+      yield* d.summary("Session Complete", {
+        Commits: String(lifecycleResult.commits.length),
+        Branch: lifecycleResult.branch,
+        "Exit code": String(exitCode),
+        ...(preservedWorktreePath
+          ? { "Preserved worktree": preservedWorktreePath }
+          : {}),
+      });
+
+      return {
+        commits: lifecycleResult.commits,
+        branch: lifecycleResult.branch,
+        preservedWorktreePath,
+        exitCode,
+      };
+    }).pipe(
+      // On error, always clean up worktree (on success, handled above with preserve check)
+      Effect.tapError(() =>
+        worktreeInfo
+          ? WorktreeManager.remove(worktreeInfo.path).pipe(
+              Effect.catchAll(() => Effect.void),
+            )
+          : Effect.void,
+      ),
+      // Always close sandbox handle
+      Effect.ensuring(Effect.promise(() => handle.close().catch(() => {}))),
+    );
+  });
+
+  return Effect.runPromise(
+    inner.pipe(
+      Effect.provide(ClackDisplay.layer),
+      Effect.provide(NodeContext.layer),
+      Effect.provide(NodeFileSystem.layer),
+    ),
+  );
 };
