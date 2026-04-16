@@ -6,9 +6,20 @@
 
 /** A single bind-mount descriptor for docker()/podman() providers. */
 export interface MountConfig {
-  /** Absolute path on the host. Tilde (`~`) is expanded to the user's home directory. */
+  /**
+   * Path on the host. Supports:
+   * - Absolute paths (`/data/cache`)
+   * - Tilde-expanded paths (`~/data` → `<home>/data`)
+   * - Relative paths (`data` or `./data`) — resolved from `process.cwd()`
+   */
   readonly hostPath: string;
-  /** Absolute path inside the sandbox container. Tilde is NOT expanded. */
+  /**
+   * Path inside the sandbox container. Supports:
+   * - Absolute paths (`/mnt/data`)
+   * - Relative paths (`data` or `./data`) — resolved from the workspace directory (`/home/agent/workspace`)
+   *
+   * Tilde is NOT expanded.
+   */
   readonly sandboxPath: string;
   /** Mount as read-only. Defaults to `false`. */
   readonly readonly?: boolean;

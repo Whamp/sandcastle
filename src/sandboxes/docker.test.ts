@@ -52,6 +52,36 @@ describe("docker()", () => {
     expect(provider.tag).toBe("bind-mount");
   });
 
+  it("resolves relative hostPath against process.cwd()", () => {
+    // "src" directory exists relative to cwd (the repo root)
+    const provider = docker({
+      mounts: [{ hostPath: "src", sandboxPath: "/mnt/src" }],
+    });
+    expect(provider.tag).toBe("bind-mount");
+  });
+
+  it("resolves dot-prefixed relative hostPath against process.cwd()", () => {
+    const provider = docker({
+      mounts: [{ hostPath: "./src", sandboxPath: "/mnt/src" }],
+    });
+    expect(provider.tag).toBe("bind-mount");
+  });
+
+  it("throws for relative hostPath that does not exist", () => {
+    expect(() =>
+      docker({
+        mounts: [{ hostPath: "nonexistent_dir_xyz", sandboxPath: "/mnt/data" }],
+      }),
+    ).toThrow("Mount hostPath does not exist");
+  });
+
+  it("resolves relative sandboxPath against sandbox workspace dir", () => {
+    const provider = docker({
+      mounts: [{ hostPath: "src", sandboxPath: "data" }],
+    });
+    expect(provider.tag).toBe("bind-mount");
+  });
+
   it("accepts an env option", () => {
     const provider = docker({ env: { MY_VAR: "hello" } });
     expect(provider.tag).toBe("bind-mount");

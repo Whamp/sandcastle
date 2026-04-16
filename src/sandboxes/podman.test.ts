@@ -73,6 +73,61 @@ describe("podman()", () => {
     ).toThrow("Mount hostPath does not exist");
   });
 
+  it("resolves relative hostPath against process.cwd()", () => {
+    const provider = podman({
+      mounts: [{ hostPath: "src", sandboxPath: "/mnt/src" }],
+    });
+    expect(provider.tag).toBe("bind-mount");
+  });
+
+  it("resolves dot-prefixed relative hostPath against process.cwd()", () => {
+    const provider = podman({
+      mounts: [{ hostPath: "./src", sandboxPath: "/mnt/src" }],
+    });
+    expect(provider.tag).toBe("bind-mount");
+  });
+
+  it("throws for relative hostPath that does not exist", () => {
+    expect(() =>
+      podman({
+        mounts: [{ hostPath: "nonexistent_dir_xyz", sandboxPath: "/mnt/data" }],
+      }),
+    ).toThrow("Mount hostPath does not exist");
+  });
+
+  it("resolves relative sandboxPath against sandbox workspace dir", async () => {
+    mockExecFile.mockImplementation((_command, _args, callback: any) => {
+      callback(null, "", "");
+      return undefined as any;
+    });
+
+    const provider = podman({
+      selinuxLabel: false,
+      mounts: [{ hostPath: "src", sandboxPath: "data" }],
+    });
+
+    const handle = await provider.create({
+      workspacePath: "/tmp/worktree",
+      hostRepoPath: "/tmp/repo",
+      mounts: [
+        { hostPath: "/tmp/worktree", sandboxPath: "/home/agent/workspace" },
+      ],
+      env: {},
+    });
+
+    const runArgs = mockExecFile.mock.calls.find(
+      ([, args]) => Array.isArray(args) && args[0] === "run",
+    )?.[1] as string[];
+
+    // sandboxPath "data" should resolve to /home/agent/workspace/data
+    const srcMount = runArgs?.find((arg: string) =>
+      arg.includes("/home/agent/workspace/data"),
+    );
+    expect(srcMount).toBeDefined();
+
+    await handle.close();
+  });
+
   it("accepts an env option", () => {
     const provider = podman({ env: { MY_VAR: "hello" } });
     expect(provider.tag).toBe("bind-mount");

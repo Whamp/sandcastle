@@ -24,7 +24,9 @@ import {
 } from "../SandboxProvider.js";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
+import { isAbsolute, resolve } from "node:path";
 import type { MountConfig } from "../MountConfig.js";
+import { SANDBOX_WORKSPACE_DIR } from "../SandboxFactory.js";
 
 export interface PodmanOptions {
   /** Podman image name (default: derived from repo directory name). */
@@ -302,11 +304,21 @@ const expandTilde = (p: string): string => {
   return p;
 };
 
+const resolveHostPath = (hostPath: string): string => {
+  const expanded = expandTilde(hostPath);
+  return isAbsolute(expanded) ? expanded : resolve(process.cwd(), expanded);
+};
+
+const resolveSandboxPath = (sandboxPath: string): string =>
+  isAbsolute(sandboxPath)
+    ? sandboxPath
+    : resolve(SANDBOX_WORKSPACE_DIR, sandboxPath);
+
 const resolveUserMounts = (
   mounts: readonly MountConfig[],
 ): Array<{ hostPath: string; sandboxPath: string; readonly?: boolean }> =>
   mounts.map((m) => {
-    const resolvedHostPath = expandTilde(m.hostPath);
+    const resolvedHostPath = resolveHostPath(m.hostPath);
 
     if (!existsSync(resolvedHostPath)) {
       throw new Error(
@@ -319,7 +331,7 @@ const resolveUserMounts = (
 
     return {
       hostPath: resolvedHostPath,
-      sandboxPath: m.sandboxPath,
+      sandboxPath: resolveSandboxPath(m.sandboxPath),
       ...(m.readonly ? { readonly: true } : {}),
     };
   });

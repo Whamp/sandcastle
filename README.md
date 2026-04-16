@@ -134,8 +134,11 @@ const result = await run({
   sandbox: docker({
     imageName: "sandcastle:local",
     // Optional: mount host directories into the sandbox (e.g. package manager caches)
+    // hostPath supports absolute, tilde-expanded (~), and relative paths (resolved from cwd).
+    // sandboxPath supports absolute and relative paths (resolved from workspace directory).
     mounts: [
       { hostPath: "~/.npm", sandboxPath: "/home/agent/.npm", readonly: true },
+      { hostPath: "data", sandboxPath: "data" }, // mounts <cwd>/data → <workspace>/data
     ],
     // Optional: provider-level env vars merged at launch time
     env: { DOCKER_SPECIFIC: "value" },
