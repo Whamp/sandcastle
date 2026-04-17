@@ -1,7 +1,5 @@
 import { NodeContext, NodeFileSystem } from "@effect/platform-node";
-import { exec } from "node:child_process";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import { Effect, Layer, Ref } from "effect";
 import type { AgentProvider } from "./AgentProvider.js";
 import {
@@ -494,12 +492,14 @@ export const createSandboxFromWorktree = async (
             sudo: hook.sudo,
           }),
         );
-        const hostEffects = (hostOnReady ?? []).map((hook) =>
-          Effect.promise(() =>
-            promisify(exec)(hook.command, { cwd: worktreePath }),
-          ),
-        );
-        yield* Effect.all([...sandboxEffects, ...hostEffects], {
+        const allEffects = [...sandboxEffects] as Effect.Effect<
+          unknown,
+          unknown
+        >[];
+        if (hostOnReady?.length) {
+          allEffects.push(runHostHooks(hostOnReady, worktreePath));
+        }
+        yield* Effect.all(allEffects, {
           concurrency: "unbounded",
         });
       }).pipe(Effect.provide(sandboxLayer)),
@@ -656,12 +656,14 @@ export const createSandbox = async (
               sudo: hook.sudo,
             }),
           );
-          const hostEffects = (hostOnReady ?? []).map((hook) =>
-            Effect.promise(() =>
-              promisify(exec)(hook.command, { cwd: worktreePath }),
-            ),
-          );
-          yield* Effect.all([...sandboxEffects, ...hostEffects], {
+          const allEffects = [...sandboxEffects] as Effect.Effect<
+            unknown,
+            unknown
+          >[];
+          if (hostOnReady?.length) {
+            allEffects.push(runHostHooks(hostOnReady, worktreePath));
+          }
+          yield* Effect.all(allEffects, {
             concurrency: "unbounded",
           });
         }).pipe(Effect.provide(sandboxLayer)),
