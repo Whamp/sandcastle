@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  getGitHubIssueTaskReadiness,
   getTaskCoordinationClaimState,
   GitHubIssueBacklog,
   formatTaskCoordinationComment,
   hasUnresolvedTaskCoordinationClaim,
+  mapGitHubIssueToTask,
   parseTaskCoordinationComment,
 } from "./GitHubIssueBacklog.js";
 
@@ -150,6 +152,62 @@ describe("GitHubIssueBacklog task coordination comments", () => {
 });
 
 describe("GitHubIssueBacklog.selectNextReadyTask", () => {
+  it("maps only explicit Blocked by entries into GitHub-backed Task dependencies", () => {
+    const task = mapGitHubIssueToTask({
+      number: 7,
+      title: "Task with explicit dependencies",
+      body: "## Parent\n\n#1\n\n## Blocked by\n\n- Blocked by #3\n- #5\n- Parent PRD is #1 for context only\n- Related note mentioning #5 again should not add a blocker\n",
+      state: "OPEN",
+      comments: [],
+    });
+
+    expect(task).toMatchObject({
+      issue: { number: 7 },
+      parentIssueNumber: 1,
+      dependencies: [
+        { issueNumber: 3, relationship: "blocked-by" },
+        { issueNumber: 5, relationship: "blocked-by" },
+      ],
+    });
+  });
+
+  it("uses blocked readiness only for unresolved task dependencies", () => {
+    const task = mapGitHubIssueToTask({
+      number: 7,
+      title: "Task with partially resolved dependencies",
+      body: "## Blocked by\n\n- Blocked by #3\n- Blocked by #5\n",
+      state: "OPEN",
+      comments: [],
+    });
+
+    expect(
+      getGitHubIssueTaskReadiness(
+        task,
+        new Map([
+          [3, "CLOSED"],
+          [5, "OPEN"],
+        ]),
+      ),
+    ).toEqual({
+      status: "blocked",
+      unresolvedDependencies: [
+        { issueNumber: 5, relationship: "blocked-by" },
+      ],
+    });
+    expect(
+      getGitHubIssueTaskReadiness(
+        task,
+        new Map([
+          [3, "CLOSED"],
+          [5, "CLOSED"],
+        ]),
+      ),
+    ).toEqual({
+      status: "ready",
+      unresolvedDependencies: [],
+    });
+  });
+
   it("skips an open GitHub Issue Task after Task Coordination records done", async () => {
     const doneComment = formatTaskCoordinationComment({
       kind: "sandcastle-task-coordination",
@@ -239,7 +297,78 @@ describe("GitHubIssueBacklog.selectNextReadyTask", () => {
     );
   });
 
-  it("selects the lowest-number ready GitHub Issue task and skips PRDs, blocked issues, and unresolved claims", async () => {
+  it("excludes dependency-blocked tasks from ready selection", async () => {
+    const backlog = new GitHubIssueBacklog({
+      gh: createFakeGh([
+        {
+          number: 2,
+          title: "Dependency-blocked implementation issue",
+          body: "## Blocked by\n\n- Blocked by #99\n",
+          state: "OPEN",
+          comments: [],
+        },
+        {
+          number: 3,
+          title: "Next ready implementation issue",
+          body: "",
+          state: "OPEN",
+          comments: [],
+        },
+        {
+          number: 99,
+          title: "Open dependency issue",
+          body: "",
+          state: "OPEN",
+          comments: [],
+        },
+      ]),
+    });
+
+    const selectedTask = await backlog.selectNextReadyTask();
+
+    expect(selectedTask).toMatchObject({
+      issue: { number: 3 },
+      dependencies: [],
+    });
+  });
+
+  it("does not treat incidental issue references inside Blocked by prose as dependency blockers", async () => {
+    const backlog = new GitHubIssueBacklog({
+      gh: createFakeGh([
+        {
+          number: 1,
+          title: "PRD: host-first Task Coordination core for GitHub Issues",
+          body: "",
+          state: "OPEN",
+          comments: [],
+        },
+        {
+          number: 2,
+          title: "Earlier task with incidental PRD reference",
+          body: "## Parent\n\n#1\n\n## Blocked by\n\nParent PRD is #1 for context while implementation continues.\n",
+          state: "OPEN",
+          comments: [],
+        },
+        {
+          number: 3,
+          title: "Later ready implementation issue",
+          body: "",
+          state: "OPEN",
+          comments: [],
+        },
+      ]),
+    });
+
+    const selectedTask = await backlog.selectNextReadyTask();
+
+    expect(selectedTask).toMatchObject({
+      issue: { number: 2, title: "Earlier task with incidental PRD reference" },
+      parentIssueNumber: 1,
+      dependencies: [],
+    });
+  });
+
+  it("restores dependency-aware selection order once dependencies are resolved", async () => {
     const claimedComment = formatTaskCoordinationComment({
       kind: "sandcastle-task-coordination",
       version: 1,
@@ -261,8 +390,8 @@ describe("GitHubIssueBacklog.selectNextReadyTask", () => {
         },
         {
           number: 2,
-          title: "Blocked implementation issue",
-          body: "## Blocked by\n\n- Blocked by #99\n",
+          title: "Earlier task with resolved dependency",
+          body: "## Parent\n\n#1\n\n## Blocked by\n\n- Blocked by #99\n",
           state: "OPEN",
           comments: [],
         },
@@ -281,16 +410,16 @@ describe("GitHubIssueBacklog.selectNextReadyTask", () => {
         },
         {
           number: 4,
-          title: "Ready implementation issue",
-          body: "## Parent\n\n#1\n",
+          title: "Later ready implementation issue",
+          body: "",
           state: "OPEN",
           comments: [],
         },
         {
           number: 99,
-          title: "Open dependency issue",
+          title: "Closed dependency issue",
           body: "",
-          state: "OPEN",
+          state: "CLOSED",
           comments: [],
         },
       ]),
@@ -300,8 +429,10 @@ describe("GitHubIssueBacklog.selectNextReadyTask", () => {
       new Date("2026-04-19T00:31:00.000Z"),
     );
 
-    expect(selectedTask?.issue.number).toBe(4);
-    expect(selectedTask?.issue.title).toBe("Ready implementation issue");
-    expect(selectedTask?.parentIssueNumber).toBe(1);
+    expect(selectedTask).toMatchObject({
+      issue: { number: 2, title: "Earlier task with resolved dependency" },
+      parentIssueNumber: 1,
+      dependencies: [{ issueNumber: 99, relationship: "blocked-by" }],
+    });
   });
 });
