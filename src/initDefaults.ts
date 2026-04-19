@@ -15,7 +15,8 @@ const INIT_EXECUTION_MODES: readonly InitExecutionModeOption[] = [
   {
     name: "host",
     label: "Host execution",
-    hint: "Recommended default for the host-first GitHub Issues coordinator template",
+    hint:
+      "Recommended default for the host-first Task Coordination worker template backed by the GitHub Issues backlog adapter",
   },
   {
     name: "docker",

@@ -349,7 +349,7 @@ export function getNextStepsLines(
       `${2}. Add "sandcastle": "npx tsx .sandcastle/${mainFilename}" to your package.json scripts`,
       `${3}. Read and customize .sandcastle/implement-prompt.md — Task Coordination selects the ready GitHub Issue Task before the agent runs`,
       `${4}. Promote the GitHub Issues you want worked by labeling ready Tasks with \`ready-for-agent\``,
-      `${5}. Run \`npm run sandcastle\` to start the host-first GitHub Issues coordinator`,
+      `${5}. Run \`npm run sandcastle\` to start the host-first Task Coordination worker backed by the GitHub Issues backlog adapter`,
     ];
   }
 

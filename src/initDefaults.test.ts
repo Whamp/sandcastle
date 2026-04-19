@@ -11,7 +11,7 @@ import {
 } from "./initDefaults.js";
 
 describe("init defaults", () => {
-  it("defaults init to the Pi-first host-first GitHub Issues coordinator path", () => {
+  it("defaults init to the Pi-first host-first Task Coordination worker path backed by GitHub Issues", () => {
     expect(DEFAULT_INIT_AGENT_NAME).toBe("pi");
     expect(DEFAULT_INIT_TEMPLATE_NAME).toBe("github-issues-coordinator");
     expect(DEFAULT_INIT_BACKLOG_MANAGER_NAME).toBe("github-issues");
@@ -24,7 +24,7 @@ describe("init defaults", () => {
     expect(initExecutionModeRequiresImageBuild("podman")).toBe(true);
   });
 
-  it("keeps the host-first GitHub Issues coordinator on host execution and the other templates on sandboxed execution", () => {
+  it("keeps the host-first GitHub-backed Task Coordination worker on host execution and the other templates on sandboxed execution", () => {
     expect(templateSupportsInitExecutionMode("github-issues-coordinator", "host")).toBe(
       true,
     );
@@ -53,7 +53,8 @@ describe("init defaults", () => {
     expect(getInitExecutionMode("host")).toMatchObject({
       name: "host",
       label: "Host execution",
-      hint: "Recommended default for the host-first GitHub Issues coordinator template",
+      hint:
+        "Recommended default for the host-first Task Coordination worker template backed by the GitHub Issues backlog adapter",
     });
   });
 });

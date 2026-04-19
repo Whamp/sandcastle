@@ -190,7 +190,7 @@ const result = await run({
   // Display name for this run, shown as a prefix in log output.
   name: "fix-issue-42",
 
-  // Lifecycle hooks grouped by where they run: host or sandbox.
+  // Lifecycle hooks grouped by where they run: host or sandboxed execution mode.
   hooks: {
     host: {
       onWorktreeReady: [{ command: "cp .env.example .env" }],
@@ -501,7 +501,7 @@ You must provide exactly one of:
 
 Use `` !`command` `` expressions in your prompt to pull in dynamic context. Each expression is replaced with the command's stdout before the prompt is sent to the agent. All expressions in a prompt run **in parallel** for faster expansion.
 
-Commands run **inside the sandbox** after `sandbox.onSandboxReady` hooks complete, so they see the same repo state the agent sees (including installed dependencies).
+Commands run inside the selected **execution mode** after `sandbox.onSandboxReady` hooks complete, so they see the same repo state the agent sees. On host execution they run on your machine; on sandboxed execution they run inside the sandbox.
 
 ```markdown
 # Open issues
@@ -1118,7 +1118,7 @@ Add your project-specific dependencies (e.g., language runtimes, build tools) to
 
 ### Hooks
 
-Hooks are grouped by **where** they run — `host` (on the developer's machine) or `sandbox` (inside the container):
+Hooks are grouped by **where** they run — `host` (on the developer's machine) or `sandbox` (inside the selected execution mode; with `noSandbox()`, this is the host execution worktree):
 
 ```ts
 hooks: {

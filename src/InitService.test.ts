@@ -342,7 +342,7 @@ describe("InitService scaffold", () => {
   });
 
   describe("github-issues-coordinator template", () => {
-    it("scaffolds a host-first GitHub Issues coordinator that uses Task Coordination instead of prompt-driven backlog selection", async () => {
+    it("scaffolds a host-first Task Coordination worker backed by GitHub Issues instead of prompt-driven backlog selection", async () => {
       const dir = await makeDir();
       await runScaffold(dir, {
         templateName: "github-issues-coordinator",
@@ -379,7 +379,7 @@ describe("InitService scaffold", () => {
       expect(prompt).not.toContain("gh issue close");
     });
 
-    it("rejects non-GitHub backlog adapters for the host-first GitHub Issues coordinator", async () => {
+    it("rejects non-GitHub backlog adapters for the host-first GitHub-backed Task Coordination worker", async () => {
       const dir = await makeDir();
 
       await expect(
@@ -416,7 +416,7 @@ describe("InitService scaffold", () => {
       ).rejects.toThrow();
     });
 
-    it("still rewrites the default host-first GitHub Issues coordinator to another swappable agent provider", async () => {
+    it("still rewrites the default host-first GitHub-backed Task Coordination worker to another swappable agent provider", async () => {
       const dir = await makeDir();
       await runScaffold(dir, {
         templateName: "github-issues-coordinator",
@@ -713,13 +713,13 @@ describe("InitService scaffold", () => {
   });
 
   describe("getNextStepsLines", () => {
-    it("github-issues-coordinator template returns host-first coordinator guidance", () => {
+    it("github-issues-coordinator template returns host-first GitHub-backed Task Coordination worker guidance", () => {
       const lines = getNextStepsLines("github-issues-coordinator", "main.mts");
       const joined = lines.join("\n");
       expect(joined).toContain("implement-prompt.md");
       expect(joined).toContain("ready-for-agent");
       expect(joined).toContain(
-        "host-first GitHub Issues coordinator",
+        "host-first Task Coordination worker backed by the GitHub Issues backlog adapter",
       );
       expect(joined).not.toContain("copyToWorktree");
       expect(joined).not.toContain("onSandboxReady");
