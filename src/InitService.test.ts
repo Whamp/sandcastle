@@ -605,7 +605,7 @@ describe("InitService scaffold", () => {
       expect(mainTs).toContain("review-prompt.md");
     });
 
-    it("main.mts passes landed-branch review prompt arguments from the implement result to the review run", async () => {
+    it("main.mts passes landed-branch review prompt arguments to a head-mode review run", async () => {
       const dir = await makeDir();
       await runScaffold(dir, { templateName: "sequential-reviewer" });
 
@@ -620,6 +620,8 @@ describe("InitService scaffold", () => {
       );
       expect(mainTs).toContain("REVIEW_BASE: reviewBase");
       expect(mainTs).toContain("REVIEW_HEAD: reviewHead");
+      expect(mainTs).toContain('branchStrategy: { type: "head" }');
+      expect(mainTs).not.toContain('branchStrategy: { type: "branch", branch }');
     });
 
     it("implement-prompt.md uses task-first selection language and leaves task closure outside the prompt", async () => {

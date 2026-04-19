@@ -85,14 +85,15 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // Phase 2: Review
   //
   // A second sonnet agent reviews the landed change set from Phase 1.
-  // It uses {{BRANCH}}, {{REVIEW_BASE}}, and {{REVIEW_HEAD}} to inspect the
-  // landed branch and the exact commit range from this iteration.
+  // It runs in head mode on the already-landed target branch, using
+  // {{BRANCH}}, {{REVIEW_BASE}}, and {{REVIEW_HEAD}} to inspect the exact
+  // commit range from this iteration.
   // -------------------------------------------------------------------------
   await sandcastle.run({
     hooks,
     copyToWorktree,
     sandbox: docker(),
-    branchStrategy: { type: "branch", branch },
+    branchStrategy: { type: "head" },
     name: "reviewer",
     maxIterations: 1,
     agent: sandcastle.claudeCode("claude-sonnet-4-6"),
