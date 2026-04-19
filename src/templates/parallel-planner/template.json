@@ -1,4 +1,4 @@
 {
   "name": "parallel-planner",
-  "description": "Plans parallelizable issues, executes on separate branches, merges"
+  "description": "Task Coordination template that plans task dependencies, executes ready tasks on separate branches, then lands the results"
 }

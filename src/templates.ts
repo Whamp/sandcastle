@@ -5,7 +5,7 @@ export const SKELETON_PROMPT =
   "`" +
   `command` +
   "`" +
-  ` to pull in dynamic context. Commands run inside the sandbox. -->
+  ` to pull in dynamic context. Commands run inside the selected execution mode. -->
 <!-- Example: !` +
   "`" +
   `git log --oneline -10` +

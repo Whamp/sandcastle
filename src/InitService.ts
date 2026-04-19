@@ -17,32 +17,34 @@ export interface TemplateMetadata {
 
 const TEMPLATES: TemplateMetadata[] = [
   {
-    name: "github-worker",
+    name: "github-issues-coordinator",
     description:
-      "Host-first GitHub Issue Task Coordination worker with a selected Task per run",
+      "Host-first Task Coordination template backed by GitHub Issues",
   },
   {
     name: "blank",
-    description: "Bare scaffold — write your own prompt and orchestration",
+    description:
+      "Bare scaffold — build your own execution flow or Task Coordination pattern",
   },
   {
     name: "simple-loop",
-    description: "Picks GitHub issues one by one and closes them",
+    description:
+      "Legacy Task Coordination template that lands one task at a time and leaves task closure to your workflow",
   },
   {
     name: "sequential-reviewer",
     description:
-      "Implements issues one by one, with a code review step after each",
+      "Legacy Task Coordination template that lands one task at a time, then runs a review pass on the landed branch",
   },
   {
     name: "parallel-planner",
     description:
-      "Plans parallelizable issues, executes on separate branches, merges",
+      "Task Coordination template that plans task dependencies, executes ready tasks on separate branches, then lands the results",
   },
   {
     name: "parallel-planner-with-review",
     description:
-      "Plans parallelizable issues, executes with per-branch review, merges",
+      "Task Coordination template that plans task dependencies, executes ready tasks with per-branch review, then lands the results",
   },
 ];
 
@@ -340,14 +342,14 @@ export function getNextStepsLines(
   template: string,
   mainFilename: string,
 ): string[] {
-  if (template === "github-worker") {
+  if (template === "github-issues-coordinator") {
     return [
       "Next steps:",
       `1. Set the required env vars in .sandcastle/.env (see .sandcastle/.env.example)`,
       `${2}. Add "sandcastle": "npx tsx .sandcastle/${mainFilename}" to your package.json scripts`,
       `${3}. Read and customize .sandcastle/implement-prompt.md — Task Coordination selects the ready GitHub Issue Task before the agent runs`,
       `${4}. Promote the GitHub Issues you want worked by labeling ready Tasks with \`ready-for-agent\``,
-      `${5}. Run \`npm run sandcastle\` to start the host-first GitHub worker`,
+      `${5}. Run \`npm run sandcastle\` to start the host-first Task Coordination worker backed by the GitHub Issues backlog adapter`,
     ];
   }
 
@@ -679,10 +681,12 @@ export const scaffold = (
       );
     }
 
-    if (!templateSupportsInitBacklogManager(templateName, backlogManager.name)) {
+    if (
+      !templateSupportsInitBacklogManager(templateName, backlogManager.name)
+    ) {
       yield* Effect.fail(
         new Error(
-          `The ${templateName} template requires the github-issues backlog manager.`,
+          `The ${templateName} template requires the github-issues backlog adapter.`,
         ),
       );
     }

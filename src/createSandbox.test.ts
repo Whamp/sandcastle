@@ -976,6 +976,54 @@ describe("createSandbox", () => {
     }
   });
 
+  it("isolated provider preserves untracked setup between runs", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "sandbox-test-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "init.txt", "init", "initial commit");
+
+    let runCount = 0;
+    const provider = makeMockIsolatedProvider(async (cwd) => {
+      const marker = await readFile(join(cwd, ".setup-marker"), "utf-8");
+      expect(marker.trim()).toBe("ready");
+
+      runCount++;
+      if (runCount === 1) {
+        await writeFile(join(cwd, "isolated-setup-check.txt"), "ok");
+        await execAsync("git add isolated-setup-check.txt", { cwd });
+        await execAsync('git commit -m "isolated setup check"', { cwd });
+      }
+
+      return `run ${runCount}`;
+    });
+
+    const sandbox = await createSandbox({
+      branch: "test-isolated-setup-persistence",
+      sandbox: provider,
+      hooks: {
+        onSandboxReady: [{ command: 'echo "ready" > .setup-marker' }],
+      },
+      _test: { hostRepoDir: hostDir },
+    });
+
+    try {
+      await sandbox.run({
+        agent: testProvider,
+        prompt: "first run",
+        maxIterations: 1,
+      });
+      await sandbox.run({
+        agent: testProvider,
+        prompt: "second run",
+        maxIterations: 1,
+      });
+
+      expect(runCount).toBe(2);
+    } finally {
+      await sandbox.close();
+      await rm(hostDir, { recursive: true, force: true });
+    }
+  });
+
   it("sandbox.interactive() invokes interactiveExec and returns result", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "sandbox-test-"));
     await initRepo(hostDir);

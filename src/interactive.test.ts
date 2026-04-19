@@ -10,6 +10,7 @@ import {
   type InteractiveExecOptions,
 } from "./SandboxProvider.js";
 import { claudeCode, pi, codex, opencode } from "./AgentProvider.js";
+import { createIsolatedGitEnv } from "./testSandbox.js";
 
 // --- buildInteractiveArgs prompt tests ---
 
@@ -118,6 +119,7 @@ describe("interactive()", () => {
     createBindMountSandboxProvider({
       name: "test-interactive",
       create: async (options) => {
+        const env = { ...process.env, ...createIsolatedGitEnv() };
         const handle: BindMountSandboxHandle = {
           worktreePath: options.worktreePath,
           exec: async (command) => {
@@ -125,6 +127,7 @@ describe("interactive()", () => {
               cwd: options.worktreePath,
               encoding: "utf-8",
               stdio: ["pipe", "pipe", "pipe"],
+              env,
             });
             return { stdout: result, stderr: "", exitCode: 0 };
           },
@@ -213,21 +216,25 @@ describe("interactive()", () => {
   it("throws when provider does not implement interactiveExec", async () => {
     const provider = createBindMountSandboxProvider({
       name: "no-interactive",
-      create: async (options) => ({
-        worktreePath: options.worktreePath,
-        exec: async (command) => {
-          const result = execSync(command, {
-            cwd: options.worktreePath,
-            encoding: "utf-8",
-            stdio: ["pipe", "pipe", "pipe"],
-          });
-          return { stdout: result, stderr: "", exitCode: 0 };
-        },
-        // No interactiveExec
-        copyFileIn: async () => {},
-        copyFileOut: async () => {},
-        close: async () => {},
-      }),
+      create: async (options) => {
+        const env = { ...process.env, ...createIsolatedGitEnv() };
+        return {
+          worktreePath: options.worktreePath,
+          exec: async (command) => {
+            const result = execSync(command, {
+              cwd: options.worktreePath,
+              encoding: "utf-8",
+              stdio: ["pipe", "pipe", "pipe"],
+              env,
+            });
+            return { stdout: result, stderr: "", exitCode: 0 };
+          },
+          // No interactiveExec
+          copyFileIn: async () => {},
+          copyFileOut: async () => {},
+          close: async () => {},
+        };
+      },
     });
 
     await expect(

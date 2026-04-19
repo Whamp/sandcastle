@@ -21,7 +21,7 @@ import {
   type SandboxProvider,
 } from "./SandboxProvider.js";
 import { noSandbox } from "./sandboxes/no-sandbox.js";
-import { makeLocalSandboxLayer } from "./testSandbox.js";
+import { createIsolatedGitEnv, makeLocalSandboxLayer } from "./testSandbox.js";
 
 const execAsync = promisify(exec);
 
@@ -305,6 +305,7 @@ describe("worktree.interactive()", () => {
     createBindMountSandboxProvider({
       name: "test-interactive",
       create: async (options) => {
+        const env = { ...process.env, ...createIsolatedGitEnv() };
         const handle: BindMountSandboxHandle = {
           worktreePath: options.worktreePath,
           exec: async (command) => {
@@ -312,6 +313,7 @@ describe("worktree.interactive()", () => {
               cwd: options.worktreePath,
               encoding: "utf-8",
               stdio: ["pipe", "pipe", "pipe"],
+              env,
             });
             return { stdout: result, stderr: "", exitCode: 0 };
           },

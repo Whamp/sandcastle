@@ -1,4 +1,4 @@
 {
   "name": "simple-loop",
-  "description": "Picks GitHub issues one by one and closes them"
+  "description": "Legacy Task Coordination template that lands one task at a time and leaves task closure to your workflow"
 }

@@ -1,12 +1,12 @@
 # TASK
 
-Fix issue {{TASK_ID}}: {{ISSUE_TITLE}}
+Fix task {{TASK_ID}}: {{TASK_TITLE}}
 
-Pull in the issue using `{{VIEW_TASK_COMMAND}}`. If it has a parent PRD, pull that in too.
+Pull in the task using `{{VIEW_TASK_COMMAND}}`. If it has a parent PRD, pull that in too.
 
-Only work on the issue specified.
+Only work on the task specified.
 
-Work on branch {{BRANCH}}. Make commits, run tests, and close the issue when done using `{{CLOSE_TASK_COMMAND}}`.
+Work on branch {{BRANCH}}. Make commits and run tests. After the merge step lands the branch, the task will be closed using `{{CLOSE_TASK_COMMAND}}`.
 
 # CONTEXT
 
@@ -49,11 +49,11 @@ Make a git commit. The commit message must:
 
 Keep it concise.
 
-# THE ISSUE
+# TASK RECORD
 
-If the task is not complete, leave a comment on the issue with what was done.
+If the task is not complete, leave a comment on the task with what was done.
 
-Do not close the issue - this will be done later.
+Do not close the task - this will be done later.
 
 Once complete, output <promise>COMPLETE</promise>.
 

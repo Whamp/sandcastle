@@ -1,4 +1,4 @@
 {
   "name": "sequential-reviewer",
-  "description": "Implements issues one by one, with a code review step after each"
+  "description": "Legacy Task Coordination template that lands one task at a time, then runs a review pass on the landed branch"
 }

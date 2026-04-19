@@ -82,7 +82,7 @@ const requireConfigDir = (
 
 const templateOption = Options.text("template").pipe(
   Options.withDescription(
-    "Template to scaffold (e.g. github-worker, blank, simple-loop)",
+    "Template to scaffold (e.g. github-issues-coordinator, blank, simple-loop)",
   ),
   Options.optional,
 );
@@ -228,8 +228,8 @@ const initCommand = Command.make(
           new InitError({
             message:
               selectedTemplate === DEFAULT_INIT_TEMPLATE_NAME
-                ? `The ${DEFAULT_INIT_TEMPLATE_NAME} template currently supports host execution only. Choose host execution or select a sandbox-oriented template.`
-                : `The ${selectedTemplate} template currently expects Docker or Podman sandboxed execution. Choose Docker/Podman or switch to ${DEFAULT_INIT_TEMPLATE_NAME}.`,
+                ? `The ${DEFAULT_INIT_TEMPLATE_NAME} template currently supports host execution only. Choose host execution or select a template that runs in sandboxed execution.`
+                : `The ${selectedTemplate} template currently scaffolds Docker or Podman sandboxed execution. Choose Docker/Podman or switch to the host-first ${DEFAULT_INIT_TEMPLATE_NAME} template.`,
           }),
         );
       }
@@ -246,7 +246,7 @@ const initCommand = Command.make(
       if (backlogManagers.length === 0) {
         yield* Effect.fail(
           new InitError({
-            message: `No compatible backlog manager is available for the ${selectedTemplate} template.`,
+            message: `No compatible backlog adapter is available for the ${selectedTemplate} template.`,
           }),
         );
       }
@@ -257,7 +257,7 @@ const initCommand = Command.make(
       } else {
         const selected = yield* Effect.promise(() =>
           clack.select({
-            message: "Select a backlog manager:",
+            message: "Select a backlog adapter:",
             initialValue: "github-issues",
             options: backlogManagers.map((b) => ({
               value: b.name,
@@ -268,7 +268,7 @@ const initCommand = Command.make(
         if (clack.isCancel(selected)) {
           yield* Effect.fail(
             new InitError({
-              message: "Backlog manager selection cancelled.",
+              message: "Backlog adapter selection cancelled.",
             }),
           );
         }
@@ -439,7 +439,7 @@ const dockerCommand = Command.make("docker", {}, () =>
   Effect.gen(function* () {
     const d = yield* Display;
     yield* d.status(
-      "Docker sandbox commands. Use --help to see available subcommands.",
+      "Docker sandboxed-execution commands. Use --help to see available subcommands.",
       "info",
     );
   }),
@@ -510,7 +510,7 @@ const podmanCommand = Command.make("podman", {}, () =>
   Effect.gen(function* () {
     const d = yield* Display;
     yield* d.status(
-      "Podman sandbox commands. Use --help to see available subcommands.",
+      "Podman sandboxed-execution commands. Use --help to see available subcommands.",
       "info",
     );
   }),

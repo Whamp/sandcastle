@@ -11,9 +11,9 @@ import {
 } from "./initDefaults.js";
 
 describe("init defaults", () => {
-  it("defaults init to the Pi-first host-first GitHub worker path", () => {
+  it("defaults init to the Pi-first host-first Task Coordination worker path backed by GitHub Issues", () => {
     expect(DEFAULT_INIT_AGENT_NAME).toBe("pi");
-    expect(DEFAULT_INIT_TEMPLATE_NAME).toBe("github-worker");
+    expect(DEFAULT_INIT_TEMPLATE_NAME).toBe("github-issues-coordinator");
     expect(DEFAULT_INIT_BACKLOG_MANAGER_NAME).toBe("github-issues");
     expect(DEFAULT_INIT_EXECUTION_MODE).toBe("host");
   });
@@ -24,11 +24,11 @@ describe("init defaults", () => {
     expect(initExecutionModeRequiresImageBuild("podman")).toBe(true);
   });
 
-  it("keeps the host-first GitHub worker on host execution and sandbox-oriented templates on sandboxed execution", () => {
-    expect(templateSupportsInitExecutionMode("github-worker", "host")).toBe(
+  it("keeps the host-first GitHub-backed Task Coordination worker on host execution and the other templates on sandboxed execution", () => {
+    expect(templateSupportsInitExecutionMode("github-issues-coordinator", "host")).toBe(
       true,
     );
-    expect(templateSupportsInitExecutionMode("github-worker", "docker")).toBe(
+    expect(templateSupportsInitExecutionMode("github-issues-coordinator", "docker")).toBe(
       false,
     );
     expect(templateSupportsInitExecutionMode("blank", "host")).toBe(false);
@@ -36,11 +36,11 @@ describe("init defaults", () => {
     expect(templateSupportsInitExecutionMode("blank", "podman")).toBe(true);
   });
 
-  it("keeps the github-worker template pinned to GitHub Issues while sandbox-oriented templates stay backlog-manager agnostic", () => {
+  it("keeps the github-issues-coordinator template pinned to GitHub Issues while the other templates stay backlog-manager agnostic", () => {
     expect(
-      templateSupportsInitBacklogManager("github-worker", "github-issues"),
+      templateSupportsInitBacklogManager("github-issues-coordinator", "github-issues"),
     ).toBe(true);
-    expect(templateSupportsInitBacklogManager("github-worker", "beads")).toBe(
+    expect(templateSupportsInitBacklogManager("github-issues-coordinator", "beads")).toBe(
       false,
     );
     expect(templateSupportsInitBacklogManager("blank", "github-issues")).toBe(
@@ -52,7 +52,9 @@ describe("init defaults", () => {
   it("lists host execution as the default init execution mode option", () => {
     expect(getInitExecutionMode("host")).toMatchObject({
       name: "host",
-      label: "Host execution (no sandbox)",
+      label: "Host execution",
+      hint:
+        "Recommended default for the host-first Task Coordination worker template backed by the GitHub Issues backlog adapter",
     });
   });
 });

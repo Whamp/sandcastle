@@ -1,7 +1,7 @@
 {
   "name": "@ai-hero/sandcastle",
   "version": "0.5.3",
-  "description": "CLI for orchestrating AI agents in isolated sandbox environments",
+  "description": "Host-first task coordination toolkit for AI coding agents across host and sandboxed execution modes",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

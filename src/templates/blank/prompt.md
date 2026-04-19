@@ -1,6 +1,6 @@
 # Context
 
-<!-- Use !`command` to pull in dynamic context. Commands run inside the sandbox. -->
+<!-- Use !`command` to pull in dynamic context. Commands run inside the selected execution mode. -->
 <!-- Example: !`git log --oneline -10` or !`{{LIST_TASKS_COMMAND}}` -->
 
 # Task

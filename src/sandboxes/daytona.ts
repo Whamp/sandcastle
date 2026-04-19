@@ -2,7 +2,7 @@
  * Daytona isolated sandbox provider.
  *
  * Creates ephemeral Daytona sandboxes via `@daytona/sdk`.
- * Requires `@daytona/sdk` as a peer dependency.
+ * Requires `@daytona/sdk` as a peer dependency at runtime.
  */
 
 import { readdir, stat } from "node:fs/promises";
@@ -14,12 +14,89 @@ import {
   type IsolatedSandboxProvider,
 } from "../SandboxProvider.js";
 
-import type {
-  Daytona as DaytonaClient,
-  DaytonaConfig,
-  CreateSandboxFromImageParams,
-  CreateSandboxFromSnapshotParams,
-} from "@daytona/sdk";
+interface DaytonaConfig {
+  apiKey?: string;
+  apiUrl?: string;
+  target?: string;
+}
+
+/**
+ * Typed loosely on purpose so `@daytona/sdk` can remain an optional peer
+ * dependency during build and typecheck.
+ */
+export type DaytonaCreateOptions = Readonly<Record<string, unknown>>;
+
+interface DaytonaExecuteCommandResult {
+  result: string;
+  exitCode: number;
+}
+
+interface DaytonaExecuteSessionCommandResult {
+  cmdId?: string;
+}
+
+interface DaytonaSessionCommandInfo {
+  exitCode?: number;
+}
+
+interface DaytonaProcessApi {
+  createSession(sessionId: string): Promise<void>;
+  executeSessionCommand(
+    sessionId: string,
+    options: { command: string; async: true },
+  ): Promise<DaytonaExecuteSessionCommandResult>;
+  getSessionCommandLogs(
+    sessionId: string,
+    cmdId: string,
+    onStdout: (chunk: string) => void,
+    onStderr: (chunk: string) => void,
+  ): Promise<void>;
+  getSessionCommand(
+    sessionId: string,
+    cmdId: string,
+  ): Promise<DaytonaSessionCommandInfo>;
+  deleteSession(sessionId: string): Promise<void>;
+  executeCommand(
+    command: string,
+    cwd: string,
+  ): Promise<DaytonaExecuteCommandResult>;
+}
+
+interface DaytonaFsApi {
+  uploadFile(hostPath: string, sandboxPath: string): Promise<void>;
+  downloadFile(sandboxPath: string, hostPath: string): Promise<void>;
+}
+
+interface DaytonaSandbox {
+  getWorkDir(): Promise<string | undefined>;
+  getUserHomeDir(): Promise<string | undefined>;
+  process: DaytonaProcessApi;
+  fs: DaytonaFsApi;
+}
+
+interface DaytonaClient {
+  create(options?: DaytonaCreateOptions): Promise<DaytonaSandbox>;
+  delete(sandbox: DaytonaSandbox): Promise<void>;
+}
+
+interface DaytonaSdkModule {
+  Daytona: new (config: DaytonaConfig) => DaytonaClient;
+}
+
+const DAYTONA_SDK_MODULE = "@daytona/sdk";
+
+const loadDaytonaSdk = async (): Promise<DaytonaSdkModule> => {
+  try {
+    return (await import(DAYTONA_SDK_MODULE)) as unknown as DaytonaSdkModule;
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown import failure.";
+    throw new Error(
+      "The Daytona sandbox provider requires the optional peer dependency `@daytona/sdk`. " +
+        `Install it to use daytona(). Import failed with: ${message}`,
+    );
+  }
+};
 
 /** Options for the Daytona sandbox provider. */
 export interface DaytonaOptions {
@@ -43,11 +120,9 @@ export interface DaytonaOptions {
 
   /**
    * Options passed through to the Daytona SDK when creating a sandbox.
-   * Supports both image-based and snapshot-based creation.
+   * Typed loosely so `@daytona/sdk` stays optional until runtime.
    */
-  readonly create?:
-    | CreateSandboxFromImageParams
-    | CreateSandboxFromSnapshotParams;
+  readonly create?: DaytonaCreateOptions;
 
   /** Environment variables injected by this provider. Merged at launch time with env resolver and agent provider env. */
   readonly env?: Record<string, string>;
@@ -71,8 +146,7 @@ export const daytona = (options?: DaytonaOptions): IsolatedSandboxProvider =>
     name: "daytona",
     env: options?.env,
     create: async (): Promise<IsolatedSandboxHandle> => {
-      const { Daytona } =
-        (await import("@daytona/sdk")) as typeof import("@daytona/sdk");
+      const { Daytona } = await loadDaytonaSdk();
 
       const config: DaytonaConfig = {};
       if (options?.apiKey) config.apiKey = options.apiKey;
@@ -80,7 +154,7 @@ export const daytona = (options?: DaytonaOptions): IsolatedSandboxProvider =>
       if (options?.target) config.target = options.target;
 
       const client: DaytonaClient = new Daytona(config);
-      const sandbox = await client.create(options?.create as any);
+      const sandbox = await client.create(options?.create);
 
       const worktreePath =
         (await sandbox.getWorkDir()) ??
@@ -113,7 +187,10 @@ export const daytona = (options?: DaytonaOptions): IsolatedSandboxProvider =>
                 },
               );
 
-              const cmdId = execResponse.cmdId!;
+              const cmdId = execResponse.cmdId;
+              if (!cmdId) {
+                throw new Error("Daytona session command did not return a cmdId");
+              }
 
               const stdoutLines: string[] = [];
               const stderrChunks: string[] = [];

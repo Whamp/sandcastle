@@ -8,9 +8,9 @@ description: Configure Sandcastle for your project.
 The `.sandcastle/` directory in your repository contains all Sandcastle configuration:
 
 - `config.json` -- Main configuration file
-- `Dockerfile` -- Defines the sandbox environment
+- `Dockerfile` -- Defines the sandboxed execution environment when you use Docker
 - `prompt.md` -- The prompt sent to the agent each iteration
-- `.env` / `.env.example` -- Environment variables for the sandbox
+- `.env` / `.env.example` -- Environment variables resolved for execution
 
 ## Config File
 
@@ -35,7 +35,7 @@ The `config.json` file controls how Sandcastle operates:
 The `prompt.md` file is the instruction text passed to the agent at the start of each iteration. It supports:
 
 - **Prompt arguments** -- `{{KEY}}` placeholders replaced with values from `promptArgs`
-- **Shell expressions** -- `` !`command` `` markers that evaluate shell commands inside the sandbox
+- **Shell expressions** -- `` !`command` `` markers that evaluate shell commands inside the selected execution environment
 
 ## Environment Variables
 

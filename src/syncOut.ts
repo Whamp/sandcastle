@@ -17,12 +17,14 @@
 import { existsSync } from "node:fs";
 import {
   mkdir,
+  mkdtemp,
   readdir,
   readFile,
   rm,
   stat,
   writeFile,
 } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { Effect } from "effect";
 import type { IsolatedSandboxHandle } from "./SandboxProvider.js";
@@ -152,6 +154,61 @@ const createPatchDir = (
       new SyncError({
         message: `Failed to create patch directory: ${e instanceof Error ? e.message : String(e)}`,
       }),
+  });
+
+const realignSandboxGitHistory = (
+  hostRepoDir: string,
+  handle: IsolatedSandboxHandle,
+): Effect.Effect<void, SyncError> =>
+  Effect.gen(function* () {
+    const branch = (yield* execHost(
+      "git rev-parse --abbrev-ref HEAD",
+      hostRepoDir,
+    )).trim();
+    const bundleDir = yield* Effect.tryPromise({
+      try: () => mkdtemp(join(tmpdir(), "sandcastle-resync-")),
+      catch: (e) =>
+        new SyncError({
+          message: `Failed to create resync temp dir: ${e instanceof Error ? e.message : String(e)}`,
+        }),
+    });
+    const bundleHostPath = join(bundleDir, "repo.bundle");
+
+    yield* Effect.ensuring(
+      Effect.gen(function* () {
+        yield* execHost(`git bundle create "${bundleHostPath}" --all`, hostRepoDir);
+
+        const mkTempResult = yield* execOk(
+          handle,
+          "mktemp -d -t sandcastle-resync-XXXXXX",
+        );
+        const sandboxTmpDir = mkTempResult.stdout.trim();
+        const bundleSandboxPath = `${sandboxTmpDir}/repo.bundle`;
+
+        try {
+          yield* Effect.tryPromise({
+            try: () => handle.copyIn(bundleHostPath, bundleSandboxPath),
+            catch: (e) =>
+              new SyncError({
+                message: `Failed to copy resync bundle into sandbox: ${e instanceof Error ? e.message : String(e)}`,
+              }),
+          });
+
+          yield* execOk(handle, `git fetch "${bundleSandboxPath}" "${branch}"`, {
+            cwd: handle.worktreePath,
+          });
+          yield* execOk(handle, `git checkout "${branch}"`, {
+            cwd: handle.worktreePath,
+          });
+          yield* execOk(handle, "git reset --hard FETCH_HEAD", {
+            cwd: handle.worktreePath,
+          });
+        } finally {
+          yield* execSandbox(handle, `rm -rf "${sandboxTmpDir}"`);
+        }
+      }),
+      Effect.promise(() => rm(bundleDir, { recursive: true, force: true })),
+    );
   });
 
 /**
@@ -368,5 +425,11 @@ export const syncOut = (
         catch: () =>
           new SyncError({ message: "Failed to clean up patch directory" }),
       });
+
+      // Realign tracked Git history in the isolated sandbox with the host
+      // after successful apply. syncOut can rewrite commit SHAs on the host
+      // via format-patch/git am, so later sandbox runs need the updated Git
+      // history without wiping untracked setup like node_modules or caches.
+      yield* realignSandboxGitHistory(hostRepoDir, handle);
     }
   });
