@@ -180,6 +180,7 @@ interface SandboxHandleContext {
     | NoSandboxHandle
     | undefined;
   readonly applyToHost: () => Effect.Effect<void, any>;
+  readonly dangerouslySkipPermissions: boolean;
 }
 
 /**
@@ -200,6 +201,7 @@ const buildSandboxHandle = (
     sandboxLayer,
     providerHandle,
     applyToHost,
+    dangerouslySkipPermissions,
   } = ctx;
 
   const sandboxHandle: Sandbox = {
@@ -308,6 +310,7 @@ const buildSandboxHandle = (
               branch,
               provider,
               completionSignal: runOptions.completionSignal,
+              dangerouslySkipPermissions,
               idleTimeoutSeconds: runOptions.idleTimeoutSeconds,
               name: runOptions.name,
               signal: runOptions.signal,
@@ -611,6 +614,7 @@ export const createSandboxFromWorktree = async (
       sandboxLayer,
       providerHandle,
       applyToHost,
+      dangerouslySkipPermissions: options.sandbox.tag !== "none",
     },
     async () => {
       if (closed) return { preservedWorktreePath: undefined };
@@ -830,6 +834,7 @@ export const createSandbox = async (
       sandboxLayer,
       providerHandle,
       applyToHost,
+      dangerouslySkipPermissions: options.sandbox.tag !== "none",
     },
     async () => {
       process.removeListener("SIGINT", onSignal);

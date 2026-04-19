@@ -699,7 +699,11 @@ describe("run() error logging to file", () => {
 
 const shellEscape = (s: string): string => "'" + s.replace(/'/g, "'\\''") + "'";
 
-const makeHostFirstAgent = (): AgentProvider => {
+const makeHostFirstAgent = (options?: {
+  readonly onBuildPrintCommand?: (
+    buildOptions: Parameters<AgentProvider["buildPrintCommand"]>[0],
+  ) => void;
+}): AgentProvider => {
   const baseProvider = claudeCode("test-model");
   const assistantLine = JSON.stringify({
     type: "assistant",
@@ -713,14 +717,16 @@ const makeHostFirstAgent = (): AgentProvider => {
   return {
     name: "host-first-test-agent",
     env: {},
-    buildPrintCommand: () =>
-      [
+    buildPrintCommand: (buildOptions) => {
+      options?.onBuildPrintCommand?.(buildOptions);
+      return [
         `printf '%s\\n' ${shellEscape(assistantLine)}`,
         `echo 'host-first output' > ${shellEscape("host-first-output.txt")}`,
         `git add ${shellEscape("host-first-output.txt")}`,
         `git commit -m ${shellEscape("host-first commit")}`,
         `printf '%s\\n' ${shellEscape(resultLine)}`,
-      ].join(" && "),
+      ].join(" && ");
+    },
     parseStreamLine: baseProvider.parseStreamLine,
   };
 };
@@ -766,9 +772,17 @@ describe("run() host-first execution", () => {
       },
     };
 
+    const buildPrintCommandCalls: Array<
+      Parameters<AgentProvider["buildPrintCommand"]>[0]
+    > = [];
+
     try {
       const result = await run({
-        agent: makeHostFirstAgent(),
+        agent: makeHostFirstAgent({
+          onBuildPrintCommand: (buildOptions) => {
+            buildPrintCommandCalls.push(buildOptions);
+          },
+        }),
         sandbox: hostExecution,
         prompt: "host-first run",
         logging: { type: "file", path: join(hostDir, "host-first.log") },
@@ -787,6 +801,9 @@ describe("run() host-first execution", () => {
         join(".sandcastle", "worktrees"),
       );
       expect(createCalls[0]!.worktreePath).not.toBe(hostDir);
+
+      expect(buildPrintCommandCalls).toHaveLength(1);
+      expect(buildPrintCommandCalls[0]!.dangerouslySkipPermissions).toBe(false);
 
       expect(
         execSync("git branch --show-current", {

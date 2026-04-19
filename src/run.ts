@@ -192,7 +192,7 @@ export interface RunOptions {
   /** Paths relative to the host repo root to copy into the worktree before sandbox start. */
   readonly copyToWorktree?: string[];
   /** Branch strategy — controls how the agent's changes relate to branches.
-   * Defaults to { type: "head" } for bind-mount providers and { type: "merge-to-head" } for isolated providers. */
+   * Defaults to { type: "head" } for bind-mount providers and { type: "merge-to-head" } for host execution and isolated providers. */
   readonly branchStrategy?: BranchStrategy;
   /** Resume a prior Claude Code session by ID. The session JSONL must exist on the host. Incompatible with maxIterations > 1. */
   readonly resumeSession?: string;
@@ -428,6 +428,7 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
       branch: orchestrateBranch,
       provider,
       completionSignal: options.completionSignal,
+      dangerouslySkipPermissions: options.sandbox.tag !== "none",
       idleTimeoutSeconds: options.idleTimeoutSeconds,
       name: options.name,
       resumeSession: options.resumeSession,

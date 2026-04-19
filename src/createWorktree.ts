@@ -606,6 +606,7 @@ export const createWorktree = async (
           branch: worktreeInfo.branch,
           provider,
           completionSignal: opts.completionSignal,
+          dangerouslySkipPermissions: opts.sandbox.tag !== "none",
           idleTimeoutSeconds: opts.idleTimeoutSeconds,
           name: opts.name,
           resumeSession: opts.resumeSession,

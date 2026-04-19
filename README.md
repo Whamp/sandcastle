@@ -422,7 +422,7 @@ await sandbox.close();
 | Option               | Type                   | Default | Description                                                                                                                         |
 | -------------------- | ---------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `agent`              | AgentProvider          | —       | **Required.** Agent provider                                                                                                        |
-| `sandbox`            | SandboxProvider        | —       | **Required.** Sandbox provider (AFK agents must be sandboxed)                                                                       |
+| `sandbox`            | SandboxProvider        | —       | **Required.** Execution provider (for example `docker()` or `noSandbox()`)                                                          |
 | `prompt`             | string                 | —       | Inline prompt (mutually exclusive with `promptFile`)                                                                                |
 | `promptFile`         | string                 | —       | Path to prompt file                                                                                                                 |
 | `maxIterations`      | number                 | 1       | Maximum iterations to run                                                                                                           |

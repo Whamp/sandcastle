@@ -69,6 +69,9 @@ const shellEscape = (s: string): string => "'" + s.replace(/'/g, "'\\''") + "'";
 const makeHostExecutionAgent = (options?: {
   readonly filename?: string;
   readonly commitMessage?: string;
+  readonly onBuildPrintCommand?: (
+    buildOptions: Parameters<AgentProvider["buildPrintCommand"]>[0],
+  ) => void;
 }): AgentProvider => {
   const filename = options?.filename ?? "host-first-output.txt";
   const commitMessage = options?.commitMessage ?? "host-first commit";
@@ -76,13 +79,15 @@ const makeHostExecutionAgent = (options?: {
   return {
     name: "host-execution-test-agent",
     env: {},
-    buildPrintCommand: () =>
-      [
+    buildPrintCommand: (buildOptions) => {
+      options?.onBuildPrintCommand?.(buildOptions);
+      return [
         `echo 'host-first output' > ${shellEscape(filename)}`,
         `git add ${shellEscape(filename)}`,
         `git commit -m ${shellEscape(commitMessage)}`,
         `printf '%s\\n' ${shellEscape(toStreamJson("<promise>COMPLETE</promise>"))}`,
-      ].join(" && "),
+      ].join(" && ");
+    },
     parseStreamLine: testProvider.parseStreamLine,
   };
 };
@@ -807,11 +812,18 @@ describe("createSandbox", () => {
       _test: { hostRepoDir: hostDir },
     });
 
+    const buildPrintCommandCalls: Array<
+      Parameters<AgentProvider["buildPrintCommand"]>[0]
+    > = [];
+
     try {
       const result = await sandbox.run({
         agent: makeHostExecutionAgent({
           filename: "from-host-sandbox.txt",
           commitMessage: "host sandbox commit",
+          onBuildPrintCommand: (buildOptions) => {
+            buildPrintCommandCalls.push(buildOptions);
+          },
         }),
         prompt: "host-first run",
         maxIterations: 1,
@@ -831,6 +843,8 @@ describe("createSandbox", () => {
         { cwd: hostDir },
       );
       expect(log).toContain("host sandbox commit");
+      expect(buildPrintCommandCalls).toHaveLength(1);
+      expect(buildPrintCommandCalls[0]!.dangerouslySkipPermissions).toBe(false);
     } finally {
       await sandbox.close();
       await rm(hostDir, { recursive: true, force: true });
