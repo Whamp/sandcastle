@@ -1,39 +1,89 @@
 ---
 title: Agent Providers
-description: Learn about agent providers and how to configure them.
+description: Learn how agent providers fit into host-first Task Coordination and how to configure them.
 ---
 
 ## Overview
 
-An agent provider defines how Sandcastle interacts with a specific AI coding tool. Each provider declares:
+An agent provider defines how Sandcastle talks to one coding agent. In the host-first Task Coordination model, it is only one part of a run:
 
-- An **env manifest** -- which environment variables it requires
-- An **env check** -- validation that runs before the agent starts
-- A **Dockerfile template** -- used during `sandcastle init` when you choose sandboxed execution
+- **Task Coordination** selects a ready **Task**
+- A **backlog adapter** exposes that Task from a system such as GitHub Issues
+- An **execution mode** decides where the run happens — host execution by default, sandboxed execution optionally
+- An **agent provider** builds commands and parses output for the coding agent that does the work
 
-## Built-in Providers
+This separation is intentional. A GitHub **Issue** is the first backlog-specific representation of a **Task**; it is not an agent-provider concern.
+
+## Default happy path
+
+The default happy path is:
+
+- **Agent provider:** Pi
+- **Execution mode:** host execution
+- **Backlog adapter:** GitHub Issues
+
+That makes Pi the default coding agent without collapsing Sandcastle into a Pi-only tool.
+
+On the default host GitHub worker path, the host also needs the `gh` CLI available because the GitHub Issues backlog adapter reads and updates Issue-backed Tasks through GitHub CLI. The scaffolded `.env.example` includes `GH_TOKEN` for that backlog adapter; it is not a Pi-specific requirement.
+
+## Built-in providers
+
+### Pi
+
+The default happy-path agent provider for host-first Task Coordination.
+
+Typical env vars:
+
+| Variable            | Description       |
+| ------------------- | ----------------- |
+| `ANTHROPIC_API_KEY` | Anthropic API key |
 
 ### Claude Code
 
-The default agent provider. Uses Claude Code as the AI coding agent in Sandcastle-managed execution.
+Uses Claude Code as the coding agent.
 
-Required environment variables:
+Typical env vars:
 
-| Variable | Description |
-| --- | --- |
+| Variable            | Description       |
+| ------------------- | ----------------- |
 | `ANTHROPIC_API_KEY` | Anthropic API key |
-| `GH_TOKEN` | GitHub personal access token |
+
+### Codex
+
+Uses Codex as the coding agent.
+
+Typical env vars:
+
+| Variable     | Description    |
+| ------------ | -------------- |
+| `OPENAI_KEY` | OpenAI API key |
 
 ### OpenCode
 
-Uses OpenCode as the AI coding agent. OpenCode output is passed through as raw stdout (no JSON parsing).
+Uses OpenCode as the coding agent.
 
-Required environment variables:
+Typical env vars:
 
-| Variable | Description |
-| --- | --- |
-| `GH_TOKEN` | GitHub personal access token |
+| Variable           | Description      |
+| ------------------ | ---------------- |
+| `OPENCODE_API_KEY` | OpenCode API key |
 
-## Custom Providers
+## Agent provider vs backlog adapter env
 
-Agent providers are swappable. To add support for a different AI coding tool, create a new provider that implements the agent provider interface with its own env manifest, env check, and Dockerfile template.
+When you scaffold a worker, `.sandcastle/.env.example` is assembled from both sides of the run contract:
+
+- the chosen **agent provider**
+- the chosen **backlog adapter**
+
+For example, the default host-first GitHub worker typically includes:
+
+- `ANTHROPIC_API_KEY` from the Pi agent provider
+- `GH_TOKEN` from the GitHub Issues backlog adapter
+
+So seeing `GH_TOKEN` in the default worker does not mean GitHub is part of the agent provider. It means the selected backlog adapter needs GitHub access to project Task Coordination state onto GitHub Issues.
+
+## Custom providers
+
+Agent providers are swappable. To add a different coding agent, implement a provider that can build commands, parse output, and supply any provider-specific env setup.
+
+If you scaffold sandboxed execution, Sandcastle can also generate a provider-specific Dockerfile template. That Dockerfile scaffolding is only for sandboxed execution and stays separate from backlog-adapter concerns.
