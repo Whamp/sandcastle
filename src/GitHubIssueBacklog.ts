@@ -12,6 +12,7 @@ export interface GitHubIssue {
   readonly body: string;
   readonly state: "OPEN" | "CLOSED";
   readonly comments: GitHubIssueComment[];
+  readonly labels?: readonly string[];
   readonly url?: string;
 }
 
@@ -35,6 +36,7 @@ export type TaskCoordinationCommentEvent =
   | "claim"
   | "reclaim"
   | "release"
+  | "needs-attention"
   | "done";
 
 export interface TaskCoordinationComment {
@@ -92,6 +94,11 @@ const execGh = async (
   });
 
 export const DEFAULT_TASK_CLAIM_LEASE_MS = 4 * 60 * 60 * 1000;
+export const READY_FOR_AGENT_LABEL = "ready-for-agent";
+export const NEEDS_ATTENTION_LABEL = "needs-attention";
+const NEEDS_ATTENTION_LABEL_COLOR = "D93F0B";
+const NEEDS_ATTENTION_LABEL_DESCRIPTION =
+  "Tasks that require human attention before returning to the ready queue";
 
 const withRepo = (args: string[], repo?: string): string[] =>
   repo ? [...args, "--repo", repo] : args;
@@ -173,7 +180,9 @@ export const formatTaskCoordinationComment = (
         ? "Sandcastle Task Coordination reclaim"
         : comment.event === "release"
           ? "Sandcastle Task Coordination release"
-          : "Sandcastle Task Coordination done";
+          : comment.event === "needs-attention"
+            ? "Sandcastle Task Coordination needs attention"
+            : "Sandcastle Task Coordination done";
 
   const executionLabel =
     comment.executionMode === "host" ? "host execution" : "sandboxed execution";
@@ -184,7 +193,9 @@ export const formatTaskCoordinationComment = (
         ? `Sandcastle reclaimed a stale GitHub-backed Task claim lease${comment.reclaimedLeaseExpiresAt ? ` that expired at ${comment.reclaimedLeaseExpiresAt}` : ""} so Task Coordination can select the Task again.`
         : comment.event === "release"
           ? "This GitHub Issue Task claim has been released."
-          : "This GitHub Issue Task has landed through Task Coordination and is ready for closure.";
+          : comment.event === "needs-attention"
+            ? `This GitHub-backed Task has moved from ${READY_FOR_AGENT_LABEL} to ${NEEDS_ATTENTION_LABEL} rather than dependency-blocked treatment because ${executionLabel} failed in a way that requires intervention beyond ordinary retry.${comment.reason ? ` Reason: ${comment.reason}` : ""}`
+            : "This GitHub Issue Task has landed through Task Coordination and is ready for closure.";
 
   return `${headline}\n\n${description}\n\n\`\`\`json\n${JSON.stringify(comment, null, 2)}\n\`\`\``;
 };
@@ -209,6 +220,7 @@ export const parseTaskCoordinationComment = (
       (parsed.event !== "claim" &&
         parsed.event !== "reclaim" &&
         parsed.event !== "release" &&
+        parsed.event !== "needs-attention" &&
         parsed.event !== "done") ||
       (parsed.executionMode !== "host" &&
         parsed.executionMode !== "sandboxed") ||
@@ -235,12 +247,26 @@ export const parseTaskCoordinationComment = (
   }
 };
 
-export const hasRecordedTaskCoordinationDone = (
+const hasRecordedTaskCoordinationEvent = (
   comments: readonly GitHubIssueComment[],
+  event: TaskCoordinationCommentEvent,
 ): boolean =>
   comments.some(
-    (comment) => parseTaskCoordinationComment(comment.body)?.event === "done",
+    (comment) => parseTaskCoordinationComment(comment.body)?.event === event,
   );
+
+export const hasRecordedTaskCoordinationDone = (
+  comments: readonly GitHubIssueComment[],
+): boolean => hasRecordedTaskCoordinationEvent(comments, "done");
+
+export const hasRecordedTaskCoordinationNeedsAttention = (
+  comments: readonly GitHubIssueComment[],
+): boolean => hasRecordedTaskCoordinationEvent(comments, "needs-attention");
+
+const hasIssueLabel = (
+  issue: Pick<GitHubIssue, "labels">,
+  label: string,
+): boolean => issue.labels?.includes(label) ?? false;
 
 const getLeaseExpiryTimestamp = (
   claim: TaskCoordinationComment,
@@ -297,6 +323,7 @@ export const getTaskCoordinationClaimState = (
     if (
       parsed.event === "reclaim" ||
       parsed.event === "release" ||
+      parsed.event === "needs-attention" ||
       parsed.event === "done"
     ) {
       activeClaim = undefined;
@@ -369,7 +396,7 @@ export class GitHubIssueBacklog {
         "--state",
         "open",
         "--label",
-        "ready-for-agent",
+        READY_FOR_AGENT_LABEL,
         "--limit",
         "100",
         "--json",
@@ -385,7 +412,9 @@ export class GitHubIssueBacklog {
         "view",
         String(number),
         "--json",
-        "number,title,body,state,comments,url",
+        "number,title,body,state,comments,url,labels",
+        "--jq",
+        "{number: .number, title: .title, body: .body, state: .state, comments: .comments, url: .url, labels: [.labels[].name]}",
       ]),
     ) as GitHubIssue;
   }
@@ -405,6 +434,10 @@ export class GitHubIssueBacklog {
       }
 
       if (hasRecordedTaskCoordinationDone(issue.comments)) {
+        continue;
+      }
+
+      if (hasIssueLabel(issue, NEEDS_ATTENTION_LABEL)) {
         continue;
       }
 
@@ -470,6 +503,21 @@ export class GitHubIssueBacklog {
     );
   }
 
+  async markTaskNeedsAttention(
+    issueNumber: number,
+    comment: TaskCoordinationComment,
+  ): Promise<void> {
+    await this.ensureNeedsAttentionLabel();
+    await this.editIssueLabels(issueNumber, {
+      add: [NEEDS_ATTENTION_LABEL],
+      remove: [READY_FOR_AGENT_LABEL],
+    });
+    await this.commentOnIssue(
+      issueNumber,
+      formatTaskCoordinationComment(comment),
+    );
+  }
+
   async markTaskDone(
     issueNumber: number,
     comment: TaskCoordinationComment,
@@ -482,6 +530,39 @@ export class GitHubIssueBacklog {
 
   async closeTask(issueNumber: number): Promise<void> {
     await this.#gh(["issue", "close", String(issueNumber)]);
+  }
+
+  private async ensureNeedsAttentionLabel(): Promise<void> {
+    await this.#gh([
+      "label",
+      "create",
+      NEEDS_ATTENTION_LABEL,
+      "--color",
+      NEEDS_ATTENTION_LABEL_COLOR,
+      "--description",
+      NEEDS_ATTENTION_LABEL_DESCRIPTION,
+      "--force",
+    ]);
+  }
+
+  private async editIssueLabels(
+    issueNumber: number,
+    options: {
+      readonly add?: readonly string[];
+      readonly remove?: readonly string[];
+    },
+  ): Promise<void> {
+    const args = ["issue", "edit", String(issueNumber)];
+
+    for (const label of options.add ?? []) {
+      args.push("--add-label", label);
+    }
+
+    for (const label of options.remove ?? []) {
+      args.push("--remove-label", label);
+    }
+
+    await this.#gh(args);
   }
 
   private async commentOnIssue(
