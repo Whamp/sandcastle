@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  getTaskCoordinationClaimState,
   GitHubIssueBacklog,
   formatTaskCoordinationComment,
   hasUnresolvedTaskCoordinationClaim,
@@ -48,7 +49,7 @@ const createFakeGh = (issues: FakeIssue[]) => {
 };
 
 describe("GitHubIssueBacklog task coordination comments", () => {
-  it("formats parseable structured claim, release, and done comments", () => {
+  it("formats parseable structured claim, reclaim, release, and done comments", () => {
     const claim = formatTaskCoordinationComment({
       kind: "sandcastle-task-coordination",
       version: 1,
@@ -56,6 +57,18 @@ describe("GitHubIssueBacklog task coordination comments", () => {
       runId: "run-claim",
       executionMode: "host",
       recordedAt: "2026-04-19T00:00:00.000Z",
+      leaseExpiresAt: "2026-04-19T04:00:00.000Z",
+    });
+    const reclaim = formatTaskCoordinationComment({
+      kind: "sandcastle-task-coordination",
+      version: 1,
+      event: "reclaim",
+      runId: "run-reclaim",
+      executionMode: "host",
+      recordedAt: "2026-04-19T00:30:00.000Z",
+      reason: "The prior claim lease expired before selection.",
+      reclaimedClaimRunId: "run-claim",
+      reclaimedLeaseExpiresAt: "2026-04-19T04:00:00.000Z",
     });
     const release = formatTaskCoordinationComment({
       kind: "sandcastle-task-coordination",
@@ -77,9 +90,39 @@ describe("GitHubIssueBacklog task coordination comments", () => {
       commits: ["abc123"],
     });
 
-    expect(parseTaskCoordinationComment(claim)?.event).toBe("claim");
+    expect(parseTaskCoordinationComment(claim)?.leaseExpiresAt).toBe(
+      "2026-04-19T04:00:00.000Z",
+    );
+    expect(parseTaskCoordinationComment(reclaim)?.event).toBe("reclaim");
     expect(parseTaskCoordinationComment(release)?.event).toBe("release");
     expect(parseTaskCoordinationComment(done)?.event).toBe("done");
+  });
+
+  it("treats an expired claim lease as stale instead of unresolved", () => {
+    const claim = formatTaskCoordinationComment({
+      kind: "sandcastle-task-coordination",
+      version: 1,
+      event: "claim",
+      runId: "run-claim",
+      executionMode: "host",
+      recordedAt: "2026-04-19T00:00:00.000Z",
+      leaseExpiresAt: "2026-04-19T00:30:00.000Z",
+    });
+
+    expect(
+      getTaskCoordinationClaimState([{ body: claim }], {
+        now: new Date("2026-04-19T00:31:00.000Z"),
+      }),
+    ).toMatchObject({
+      status: "stale",
+      claim: { runId: "run-claim" },
+      leaseExpiresAt: "2026-04-19T00:30:00.000Z",
+    });
+    expect(
+      hasUnresolvedTaskCoordinationClaim([{ body: claim }], {
+        now: new Date("2026-04-19T00:31:00.000Z"),
+      }),
+    ).toBe(false);
   });
 
   it("treats a release comment as resolving a prior claim", () => {
@@ -150,6 +193,52 @@ describe("GitHubIssueBacklog.selectNextReadyTask", () => {
     expect(selectedTask?.issue.title).toBe("Next ready implementation issue");
   });
 
+  it("selects a stale-claimed GitHub Issue Task again once its lease expires", async () => {
+    const staleClaimComment = formatTaskCoordinationComment({
+      kind: "sandcastle-task-coordination",
+      version: 1,
+      event: "claim",
+      runId: "run-stale-claim",
+      executionMode: "host",
+      recordedAt: "2026-04-19T00:00:00.000Z",
+      leaseExpiresAt: "2026-04-19T00:30:00.000Z",
+    });
+
+    const backlog = new GitHubIssueBacklog({
+      gh: createFakeGh([
+        {
+          number: 3,
+          title: "Previously claimed implementation issue",
+          body: "",
+          state: "OPEN",
+          comments: [
+            {
+              body: staleClaimComment,
+              createdAt: "2026-04-19T00:00:00.000Z",
+              author: { login: "sandcastle" },
+            },
+          ],
+        },
+        {
+          number: 4,
+          title: "Next ready implementation issue",
+          body: "",
+          state: "OPEN",
+          comments: [],
+        },
+      ]),
+    });
+
+    const selectedTask = await backlog.selectNextReadyTask(
+      new Date("2026-04-19T00:31:00.000Z"),
+    );
+
+    expect(selectedTask?.issue.number).toBe(3);
+    expect(selectedTask?.issue.title).toBe(
+      "Previously claimed implementation issue",
+    );
+  });
+
   it("selects the lowest-number ready GitHub Issue task and skips PRDs, blocked issues, and unresolved claims", async () => {
     const claimedComment = formatTaskCoordinationComment({
       kind: "sandcastle-task-coordination",
@@ -158,6 +247,7 @@ describe("GitHubIssueBacklog.selectNextReadyTask", () => {
       runId: "run-claimed",
       executionMode: "host",
       recordedAt: "2026-04-19T00:00:00.000Z",
+      leaseExpiresAt: "2026-04-19T04:00:00.000Z",
     });
 
     const backlog = new GitHubIssueBacklog({
@@ -206,7 +296,9 @@ describe("GitHubIssueBacklog.selectNextReadyTask", () => {
       ]),
     });
 
-    const selectedTask = await backlog.selectNextReadyTask();
+    const selectedTask = await backlog.selectNextReadyTask(
+      new Date("2026-04-19T00:31:00.000Z"),
+    );
 
     expect(selectedTask?.issue.number).toBe(4);
     expect(selectedTask?.issue.title).toBe("Ready implementation issue");

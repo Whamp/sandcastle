@@ -1,14 +1,20 @@
 import { randomUUID } from "node:crypto";
-import type {
-  GitHubIssue,
-  GitHubIssueTask,
-  TaskCoordinationComment,
+import {
+  DEFAULT_TASK_CLAIM_LEASE_MS,
+  getTaskCoordinationClaimState,
+  type GitHubIssue,
+  type GitHubIssueTask,
+  type TaskCoordinationComment,
 } from "./GitHubIssueBacklog.js";
 
 export interface GitHubIssueSuccessPathBacklog {
-  selectNextReadyTask(): Promise<GitHubIssueTask | undefined>;
+  selectNextReadyTask(asOf?: Date): Promise<GitHubIssueTask | undefined>;
   getIssue(number: number): Promise<GitHubIssue>;
   claimTask(
+    issueNumber: number,
+    comment: TaskCoordinationComment,
+  ): Promise<void>;
+  reclaimTask(
     issueNumber: number,
     comment: TaskCoordinationComment,
   ): Promise<void>;
@@ -55,9 +61,12 @@ const createComment = (
   options: Pick<GitHubIssueSuccessPathResult, "runId" | "executionMode"> & {
     readonly event: TaskCoordinationComment["event"];
     readonly now: Date;
+    readonly claimLeaseMs?: number;
     readonly branch?: string;
     readonly commits?: string[];
     readonly reason?: string;
+    readonly reclaimedClaimRunId?: string;
+    readonly reclaimedLeaseExpiresAt?: string;
   },
 ): TaskCoordinationComment => ({
   kind: "sandcastle-task-coordination",
@@ -66,16 +75,27 @@ const createComment = (
   runId: options.runId!,
   executionMode: options.executionMode,
   recordedAt: options.now.toISOString(),
+  leaseExpiresAt:
+    options.event === "claim"
+      ? new Date(
+          options.now.getTime() +
+            (options.claimLeaseMs ?? DEFAULT_TASK_CLAIM_LEASE_MS),
+        ).toISOString()
+      : undefined,
   branch: options.branch,
   commits: options.commits,
   reason: options.reason,
+  reclaimedClaimRunId: options.reclaimedClaimRunId,
+  reclaimedLeaseExpiresAt: options.reclaimedLeaseExpiresAt,
 });
 
 export const executeNextGitHubIssueTask = async (
   options: GitHubIssueSuccessPathOptions,
 ): Promise<GitHubIssueSuccessPathResult> => {
   const executionMode = "host" as const;
-  const selectedTask = await options.backlog.selectNextReadyTask();
+  const now = options.now ?? (() => new Date());
+  const selectionTime = now();
+  const selectedTask = await options.backlog.selectNextReadyTask(selectionTime);
 
   if (!selectedTask) {
     return {
@@ -85,10 +105,31 @@ export const executeNextGitHubIssueTask = async (
   }
 
   const runId = options.runId ?? `sandcastle-${randomUUID()}`;
-  const now = options.now ?? (() => new Date());
   const parentIssue = selectedTask.parentIssueNumber
     ? await options.backlog.getIssue(selectedTask.parentIssueNumber)
     : undefined;
+  const claimState = getTaskCoordinationClaimState(
+    selectedTask.issue.comments,
+    {
+      now: selectionTime,
+      defaultLeaseMs: DEFAULT_TASK_CLAIM_LEASE_MS,
+    },
+  );
+
+  if (claimState.status === "stale") {
+    await options.backlog.reclaimTask(
+      selectedTask.issue.number,
+      createComment({
+        event: "reclaim",
+        runId,
+        executionMode,
+        now: now(),
+        reason: "The prior claim lease expired before selection.",
+        reclaimedClaimRunId: claimState.claim?.runId,
+        reclaimedLeaseExpiresAt: claimState.leaseExpiresAt,
+      }),
+    );
+  }
 
   await options.backlog.claimTask(
     selectedTask.issue.number,
@@ -97,6 +138,7 @@ export const executeNextGitHubIssueTask = async (
       runId,
       executionMode,
       now: now(),
+      claimLeaseMs: DEFAULT_TASK_CLAIM_LEASE_MS,
     }),
   );
 
