@@ -528,7 +528,7 @@ describe("InitService scaffold", () => {
     expect(mainTs).toContain("onSandboxReady");
   });
 
-  it("simple-loop prompt.md contains shell expressions for issues and commit history", async () => {
+  it("simple-loop prompt.md contains task-first shell expressions and completion guidance", async () => {
     const dir = await makeDir();
     await runScaffold(dir, { templateName: "simple-loop" });
 
@@ -538,6 +538,13 @@ describe("InitService scaffold", () => {
     );
     expect(prompt).toContain("!`gh issue");
     expect(prompt).toContain("!`git log");
+    expect(prompt).toContain("## Open tasks");
+    expect(prompt).toContain("Work on tasks in this order:");
+    expect(prompt).toContain("Pick the highest-priority open task");
+    expect(prompt).toContain("one task per iteration");
+    expect(prompt).not.toContain("## Open issues");
+    expect(prompt).not.toContain("Work on issues in this order:");
+    expect(prompt).not.toContain("Pick the highest-priority open issue");
     expect(prompt).toContain("<promise>COMPLETE</promise>");
   });
 
@@ -597,7 +604,7 @@ describe("InitService scaffold", () => {
       expect(mainTs).toContain("branch");
     });
 
-    it("implement-prompt.md contains issue selection and closure, not prompt argument placeholders", async () => {
+    it("implement-prompt.md uses task-first selection and closure language, not prompt argument placeholders", async () => {
       const dir = await makeDir();
       await runScaffold(dir, { templateName: "sequential-reviewer" });
 
@@ -607,6 +614,11 @@ describe("InitService scaffold", () => {
       );
       expect(prompt).toContain("gh issue list");
       expect(prompt).toContain("gh issue close");
+      expect(prompt).toContain("## Open tasks");
+      expect(prompt).toContain("Pick the highest-priority open task");
+      expect(prompt).toContain("close the task with");
+      expect(prompt).not.toContain("## Open issues");
+      expect(prompt).not.toContain("Pick the highest-priority open issue");
       expect(prompt).not.toContain("{{ISSUE_NUMBER}}");
       expect(prompt).not.toContain("{{ISSUE_TITLE}}");
       expect(prompt).not.toContain("{{BRANCH}}");
@@ -961,7 +973,23 @@ describe("InitService scaffold", () => {
       expect(mainTs).toContain("claude-opus-4-6");
     });
 
-    it("implement-prompt.md contains {{TASK_ID}}, {{ISSUE_TITLE}}, {{BRANCH}} prompt arguments", async () => {
+    it("plan-prompt.md uses task-first plan tags and examples", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, { templateName: "parallel-planner" });
+
+      const prompt = await readFile(
+        join(dir, ".sandcastle", "plan-prompt.md"),
+        "utf-8",
+      );
+      expect(prompt).toContain("# TASKS");
+      expect(prompt).toContain("<tasks-json>");
+      expect(prompt).toContain('{"tasks": [{"id": "42", "title": "Fix auth bug", "branch": "sandcastle/task-42-fix-auth-bug"}]}');
+      expect(prompt).not.toContain("# ISSUES");
+      expect(prompt).not.toContain("<issues-json>");
+      expect(prompt).not.toContain('{"issues":');
+    });
+
+    it("implement-prompt.md contains {{TASK_ID}}, {{TASK_TITLE}}, {{BRANCH}} prompt arguments", async () => {
       const dir = await makeDir();
       await runScaffold(dir, { templateName: "parallel-planner" });
 
@@ -970,11 +998,12 @@ describe("InitService scaffold", () => {
         "utf-8",
       );
       expect(prompt).toContain("{{TASK_ID}}");
-      expect(prompt).toContain("{{ISSUE_TITLE}}");
+      expect(prompt).toContain("{{TASK_TITLE}}");
       expect(prompt).toContain("{{BRANCH}}");
+      expect(prompt).not.toContain("{{ISSUE_TITLE}}");
     });
 
-    it("merge-prompt.md contains {{BRANCHES}} and {{ISSUES}} prompt arguments", async () => {
+    it("merge-prompt.md contains {{BRANCHES}} and {{TASKS}} prompt arguments", async () => {
       const dir = await makeDir();
       await runScaffold(dir, { templateName: "parallel-planner" });
 
@@ -983,7 +1012,9 @@ describe("InitService scaffold", () => {
         "utf-8",
       );
       expect(prompt).toContain("{{BRANCHES}}");
-      expect(prompt).toContain("{{ISSUES}}");
+      expect(prompt).toContain("{{TASKS}}");
+      expect(prompt).toContain("# CLOSE TASKS");
+      expect(prompt).not.toContain("{{ISSUES}}");
     });
 
     it("main.mts always uses the merge agent regardless of branch count", async () => {
@@ -1126,7 +1157,23 @@ describe("InitService scaffold", () => {
       expect(mergerSection).toContain("maxIterations: 1");
     });
 
-    it("implement-prompt.md contains {{TASK_ID}}, {{ISSUE_TITLE}}, {{BRANCH}} prompt arguments", async () => {
+    it("plan-prompt.md uses task-first plan tags and examples", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, { templateName: "parallel-planner-with-review" });
+
+      const prompt = await readFile(
+        join(dir, ".sandcastle", "plan-prompt.md"),
+        "utf-8",
+      );
+      expect(prompt).toContain("# TASKS");
+      expect(prompt).toContain("<tasks-json>");
+      expect(prompt).toContain('{"tasks": [{"id": "42", "title": "Fix auth bug", "branch": "sandcastle/task-42-fix-auth-bug"}]}');
+      expect(prompt).not.toContain("# ISSUES");
+      expect(prompt).not.toContain("<issues-json>");
+      expect(prompt).not.toContain('{"issues":');
+    });
+
+    it("implement-prompt.md contains {{TASK_ID}}, {{TASK_TITLE}}, {{BRANCH}} prompt arguments", async () => {
       const dir = await makeDir();
       await runScaffold(dir, { templateName: "parallel-planner-with-review" });
 
@@ -1135,8 +1182,9 @@ describe("InitService scaffold", () => {
         "utf-8",
       );
       expect(prompt).toContain("{{TASK_ID}}");
-      expect(prompt).toContain("{{ISSUE_TITLE}}");
+      expect(prompt).toContain("{{TASK_TITLE}}");
       expect(prompt).toContain("{{BRANCH}}");
+      expect(prompt).not.toContain("{{ISSUE_TITLE}}");
     });
 
     it("review-prompt.md contains {{BRANCH}} prompt argument", async () => {
@@ -1150,7 +1198,7 @@ describe("InitService scaffold", () => {
       expect(prompt).toContain("{{BRANCH}}");
     });
 
-    it("merge-prompt.md contains {{BRANCHES}} and {{ISSUES}} prompt arguments", async () => {
+    it("merge-prompt.md contains {{BRANCHES}} and {{TASKS}} prompt arguments", async () => {
       const dir = await makeDir();
       await runScaffold(dir, { templateName: "parallel-planner-with-review" });
 
@@ -1159,7 +1207,9 @@ describe("InitService scaffold", () => {
         "utf-8",
       );
       expect(prompt).toContain("{{BRANCHES}}");
-      expect(prompt).toContain("{{ISSUES}}");
+      expect(prompt).toContain("{{TASKS}}");
+      expect(prompt).toContain("# CLOSE TASKS");
+      expect(prompt).not.toContain("{{ISSUES}}");
     });
 
     it("parallel-planner-with-review appears in listTemplates()", () => {
@@ -1475,7 +1525,7 @@ describe("InitService scaffold", () => {
       expect(planPrompt).not.toContain("{{LIST_TASKS_COMMAND}}");
     });
 
-    it("parallel-planner main.mts uses id:string and TASK_ID", async () => {
+    it("parallel-planner main.mts uses task-first plan data and prompt arguments", async () => {
       const dir = await makeDir();
       await runScaffold(dir, {
         templateName: "parallel-planner",
@@ -1485,10 +1535,14 @@ describe("InitService scaffold", () => {
         join(dir, ".sandcastle", "main.mts"),
         "utf-8",
       );
-      expect(main).toContain("id: string");
-      expect(main).toContain("TASK_ID: issue.id");
-      expect(main).not.toContain("number: number");
+      expect(main).toContain("const { tasks } = JSON.parse");
+      expect(main).toContain("tasks: { id: string; title: string; branch: string }[]");
+      expect(main).toContain("TASK_ID: task.id");
+      expect(main).toContain("TASK_TITLE: task.title");
+      expect(main).toContain("TASKS: completedTasks");
       expect(main).not.toContain("ISSUE_NUMBER");
+      expect(main).not.toContain("ISSUE_TITLE");
+      expect(main).not.toContain("ISSUES");
       expect(main).not.toContain("`  #${");
     });
 
@@ -1616,7 +1670,7 @@ describe("InitService scaffold", () => {
       expect(planPrompt).not.toContain("{{LIST_TASKS_COMMAND}}");
     });
 
-    it("parallel-planner-with-review main.mts uses id:string and TASK_ID", async () => {
+    it("parallel-planner-with-review main.mts uses task-first plan data and prompt arguments", async () => {
       const dir = await makeDir();
       await runScaffold(dir, {
         templateName: "parallel-planner-with-review",
@@ -1626,10 +1680,14 @@ describe("InitService scaffold", () => {
         join(dir, ".sandcastle", "main.mts"),
         "utf-8",
       );
-      expect(main).toContain("id: string");
-      expect(main).toContain("TASK_ID: issue.id");
-      expect(main).not.toContain("number: number");
+      expect(main).toContain("const { tasks } = JSON.parse");
+      expect(main).toContain("tasks: { id: string; title: string; branch: string }[]");
+      expect(main).toContain("TASK_ID: task.id");
+      expect(main).toContain("TASK_TITLE: task.title");
+      expect(main).toContain("TASKS: completedTasks");
       expect(main).not.toContain("ISSUE_NUMBER");
+      expect(main).not.toContain("ISSUE_TITLE");
+      expect(main).not.toContain("ISSUES");
       expect(main).not.toContain("`  #${");
     });
 

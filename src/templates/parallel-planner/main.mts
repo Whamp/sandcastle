@@ -48,9 +48,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   // Phase 1: Plan
   //
-  // The planning agent (opus, for deeper reasoning) reads the open issue list,
-  // builds a dependency graph, and selects the issues that can be worked in
-  // parallel right now (i.e., no blocking dependencies on other open issues).
+  // The planning agent (opus, for deeper reasoning) reads the open task list,
+  // builds a dependency graph, and selects the tasks that can be worked in
+  // parallel right now (i.e., no blocking dependencies on other open tasks).
   //
   // It outputs a <plan> JSON block — we parse that to drive Phase 2.
   // -------------------------------------------------------------------------
@@ -74,54 +74,54 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     );
   }
 
-  // The plan JSON contains an array of issues, each with id, title, branch.
-  const { issues } = JSON.parse(planMatch[1]!) as {
-    issues: { id: string; title: string; branch: string }[];
+  // The plan JSON contains an array of tasks, each with id, title, and branch.
+  const { tasks } = JSON.parse(planMatch[1]!) as {
+    tasks: { id: string; title: string; branch: string }[];
   };
 
-  if (issues.length === 0) {
+  if (tasks.length === 0) {
     // No unblocked work — either everything is done or everything is blocked.
-    console.log("No unblocked issues to work on. Exiting.");
+    console.log("No unblocked tasks to work on. Exiting.");
     break;
   }
 
   console.log(
-    `Planning complete. ${issues.length} issue(s) to work in parallel:`,
+    `Planning complete. ${tasks.length} task(s) to work in parallel:`,
   );
-  for (const issue of issues) {
-    console.log(`  ${issue.id}: ${issue.title} → ${issue.branch}`);
+  for (const task of tasks) {
+    console.log(`  ${task.id}: ${task.title} → ${task.branch}`);
   }
 
   // -------------------------------------------------------------------------
   // Phase 2: Execute
   //
-  // Spawn one sonnet agent per issue, all running concurrently.
+  // Spawn one sonnet agent per task, all running concurrently.
   // Each agent works on its own branch so there are no conflicts during
   // execution — merging happens in Phase 3.
   //
   // Promise.allSettled means one failing agent doesn't cancel the others.
   // -------------------------------------------------------------------------
   const settled = await Promise.allSettled(
-    issues.map((issue) =>
+    tasks.map((task) =>
       sandcastle.run({
         hooks,
         copyToWorktree,
         // Each agent starts on its own branch via branchStrategy on run().
         sandbox: docker(),
-        branchStrategy: { type: "branch", branch: issue.branch },
+        branchStrategy: { type: "branch", branch: task.branch },
         name: "implementer",
         // Give each agent plenty of room to implement and iterate on tests.
         maxIterations: 100,
-        // Sonnet for execution: fast and capable enough for typical issue work.
+        // Sonnet for execution: fast and capable enough for typical task work.
         agent: sandcastle.claudeCode("claude-sonnet-4-6"),
         promptFile: "./.sandcastle/implement-prompt.md",
-        // Prompt arguments substitute {{TASK_ID}}, {{ISSUE_TITLE}},
+        // Prompt arguments substitute {{TASK_ID}}, {{TASK_TITLE}},
         // and {{BRANCH}} placeholders in implement-prompt.md before the
         // agent sees the prompt.
         promptArgs: {
-          TASK_ID: issue.id,
-          ISSUE_TITLE: issue.title,
-          BRANCH: issue.branch,
+          TASK_ID: task.id,
+          TASK_TITLE: task.title,
+          BRANCH: task.branch,
         },
       }),
     ),
@@ -131,15 +131,15 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   for (const [i, outcome] of settled.entries()) {
     if (outcome.status === "rejected") {
       console.error(
-        `  ✗ ${issues[i]!.id} (${issues[i]!.branch}) failed: ${outcome.reason}`,
+        `  ✗ ${tasks[i]!.id} (${tasks[i]!.branch}) failed: ${outcome.reason}`,
       );
     }
   }
 
   // Only pass branches that actually produced commits to the merge phase.
   // An agent that ran successfully but made no commits has nothing to merge.
-  const completedIssues = settled
-    .map((outcome, i) => ({ outcome, issue: issues[i]! }))
+  const completedTasks = settled
+    .map((outcome, i) => ({ outcome, task: tasks[i]! }))
     .filter(
       (
         entry,
@@ -147,14 +147,14 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         outcome: PromiseFulfilledResult<
           Awaited<ReturnType<typeof sandcastle.run>>
         >;
-        issue: (typeof issues)[number];
+        task: (typeof tasks)[number];
       } =>
         entry.outcome.status === "fulfilled" &&
         entry.outcome.value.commits.length > 0,
     )
-    .map((entry) => entry.issue);
+    .map((entry) => entry.task);
 
-  const completedBranches = completedIssues.map((i) => i.branch);
+  const completedBranches = completedTasks.map((task) => task.branch);
 
   console.log(
     `\nExecution complete. ${completedBranches.length} branch(es) with commits:`,
@@ -175,8 +175,8 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // One sonnet agent merges all completed branches into the current branch,
   // resolving any conflicts and running tests to confirm everything still works.
   //
-  // The {{BRANCHES}} and {{ISSUES}} prompt arguments are lists that the agent
-  // uses to know which branches to merge and which issues to close.
+  // The {{BRANCHES}} and {{TASKS}} prompt arguments are lists that the agent
+  // uses to know which branches to merge and which tasks to close.
   // -------------------------------------------------------------------------
   await sandcastle.run({
     hooks,
@@ -188,10 +188,10 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     promptFile: "./.sandcastle/merge-prompt.md",
     promptArgs: {
       // A markdown list of branch names, one per line.
-      BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),
-      // A markdown list of issue IDs and titles, one per line.
-      ISSUES: completedIssues
-        .map((i) => `- ${i.id}: ${i.title}`)
+      BRANCHES: completedBranches.map((branch) => `- ${branch}`).join("\n"),
+      // A markdown list of task IDs and titles, one per line.
+      TASKS: completedTasks
+        .map((task) => `- ${task.id}: ${task.title}`)
         .join("\n"),
     },
   });

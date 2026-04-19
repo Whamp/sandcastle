@@ -1,13 +1,13 @@
 // Sequential Reviewer — implement-then-review loop
 //
-// This template drives a two-phase workflow per issue:
-//   Phase 1 (Implement): A sonnet agent picks an open GitHub issue, works on it
+// This template drives a two-phase workflow per task:
+//   Phase 1 (Implement): A sonnet agent picks the next open task, works on it
 //                        on a dedicated branch, commits the changes, and signals
 //                        completion.
 //   Phase 2 (Review):    A second sonnet agent reviews the branch diff and either
 //                        approves it or makes corrections directly on the branch.
 //
-// The outer loop repeats up to MAX_ITERATIONS times, processing one issue per
+// The outer loop repeats up to MAX_ITERATIONS times, processing one task per
 // iteration. This is a middle-complexity option between the simple-loop (no review
 // gate) and the parallel-planner (concurrent execution with a planning phase).
 //
@@ -24,7 +24,7 @@ import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 // ---------------------------------------------------------------------------
 
 // Maximum number of implement→review cycles to run before stopping.
-// Each cycle works on one issue. Raise this to process more issues per run.
+// Each cycle works on one task. Raise this to process more tasks per run.
 const MAX_ITERATIONS = 10;
 
 // Hooks run inside the sandbox before the agent starts each iteration.
@@ -48,9 +48,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   // Phase 1: Implement
   //
-  // A sonnet agent picks the next open GitHub issue, creates a branch, writes
-  // the implementation (using RGR: Red → Green → Repeat → Refactor), and
-  // commits the result.
+  // A sonnet agent picks the next open task, creates a branch, writes the
+  // implementation (using RGR: Red → Green → Repeat → Refactor), and commits
+  // the result.
   //
   // The agent signals completion via <promise>COMPLETE</promise> when done.
   // The result contains the branch name the agent worked on.
