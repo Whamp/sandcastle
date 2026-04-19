@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SANDBOX_REPO_DIR } from "./SandboxFactory.js";
+import { templateSupportsInitBacklogManager } from "./initDefaults.js";
 
 const GITIGNORE = `.env
 logs/
@@ -674,6 +675,14 @@ export const scaffold = (
       yield* Effect.fail(
         new Error(
           ".sandcastle/ directory already exists. Remove it first if you want to re-initialize.",
+        ),
+      );
+    }
+
+    if (!templateSupportsInitBacklogManager(templateName, backlogManager.name)) {
+      yield* Effect.fail(
+        new Error(
+          `The ${templateName} template requires the github-issues backlog manager.`,
         ),
       );
     }

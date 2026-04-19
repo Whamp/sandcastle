@@ -584,7 +584,7 @@ Tell the agent to output your chosen string(s) in the prompt, and the orchestrat
 
 ### Templates
 
-`sandcastle init` prompts you to choose a template, an execution mode, and a backlog manager. The default happy path is the `github-worker` template on host execution with Pi. Sandbox-oriented templates still support Docker or Podman. If your project's `package.json` has `"type": "module"`, the file will be named `main.ts` instead. Six templates are available:
+`sandcastle init` prompts you to choose a template and an execution mode. Sandbox-oriented templates also prompt for a backlog manager. The default happy path is the `github-worker` template on host execution with Pi and GitHub Issues. That template stays pinned to GitHub Issues so its host-first Task Coordination scaffold, `ready-for-agent` guidance, and `GH_TOKEN` setup remain consistent with the GitHub-first single-adapter contract. If your project's `package.json` has `"type": "module"`, the file will be named `main.ts` instead. Six templates are available:
 
 | Template                       | Description                                                                   |
 | ------------------------------ | ----------------------------------------------------------------------------- |
@@ -601,7 +601,7 @@ Select a template during `sandcastle init` when prompted, or re-run init in a fr
 
 ### `sandcastle init`
 
-Scaffolds the `.sandcastle/` config directory. This is the first command you run in a new repo. The default happy path is host execution with the `github-worker` template, so init skips container-image setup. Sandbox-oriented templates still let you choose Docker or Podman during init — selecting Podman writes a `Containerfile` instead of `Dockerfile` and uses `sandcastle podman build-image` for the build step.
+Scaffolds the `.sandcastle/` config directory. This is the first command you run in a new repo. The default happy path is host execution with the `github-worker` template, so init skips container-image setup and keeps the backlog manager on GitHub Issues. Sandbox-oriented templates still let you choose Docker or Podman during init — selecting Podman writes a `Containerfile` instead of `Dockerfile` and uses `sandcastle podman build-image` for the build step.
 
 | Option         | Required | Default                                          | Description                                                          |
 | -------------- | -------- | ------------------------------------------------ | -------------------------------------------------------------------- |
@@ -620,7 +620,7 @@ The default `github-worker` path creates files like:
 └── .gitignore           # Ignores .env, logs/
 ```
 
-Sandbox-oriented templates also add a `Dockerfile` or `Containerfile` when you choose Docker or Podman.
+The `github-worker` template is intentionally fixed to GitHub Issues so the generated host-first worker, `ready-for-agent` labeling flow, and `.env.example` stay aligned. Sandbox-oriented templates also add a `Dockerfile` or `Containerfile` when you choose Docker or Podman.
 
 Errors if `.sandcastle/` already exists to prevent overwriting customizations.
 

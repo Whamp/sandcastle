@@ -365,6 +365,25 @@ describe("InitService scaffold", () => {
       expect(prompt).not.toContain("gh issue close");
     });
 
+    it("rejects non-GitHub backlog managers for the host-first GitHub worker", async () => {
+      const dir = await makeDir();
+
+      await expect(
+        runScaffold(dir, {
+          templateName: "github-worker",
+          agent: piAgent,
+          model: "claude-sonnet-4-6",
+          executionMode: "host",
+          backlogManager: getBacklogManager("beads"),
+        }),
+      ).rejects.toThrow(
+        "The github-worker template requires the github-issues backlog manager.",
+      );
+
+      const { access } = await import("node:fs/promises");
+      await expect(access(join(dir, ".sandcastle"))).rejects.toThrow();
+    });
+
     it("host execution skips Dockerfile and Containerfile scaffolding", async () => {
       const dir = await makeDir();
       await runScaffold(dir, {

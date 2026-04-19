@@ -37,6 +37,7 @@ import {
   getInitExecutionMode,
   initExecutionModeRequiresImageBuild,
   listInitExecutionModes,
+  templateSupportsInitBacklogManager,
   templateSupportsInitExecutionMode,
   templateUsesSandcastleLabelPrompt,
 } from "./initDefaults.js";
@@ -238,10 +239,22 @@ const initCommand = Command.make(
           ? undefined
           : getSandboxProvider(selectedExecutionMode.name);
 
-      // Resolve backlog manager: interactive select
-      const backlogManagers = listBacklogManagers();
+      // Resolve backlog manager: interactive select, filtered by template compatibility.
+      const backlogManagers = listBacklogManagers().filter((manager) =>
+        templateSupportsInitBacklogManager(selectedTemplate, manager.name),
+      );
+      if (backlogManagers.length === 0) {
+        yield* Effect.fail(
+          new InitError({
+            message: `No compatible backlog manager is available for the ${selectedTemplate} template.`,
+          }),
+        );
+      }
+
       let selectedBacklogManager: BacklogManagerEntry;
-      {
+      if (backlogManagers.length === 1) {
+        selectedBacklogManager = backlogManagers[0]!;
+      } else {
         const selected = yield* Effect.promise(() =>
           clack.select({
             message: "Select a backlog manager:",

@@ -2,6 +2,7 @@ import type { InitExecutionMode } from "./InitService.js";
 
 export const DEFAULT_INIT_AGENT_NAME = "pi";
 export const DEFAULT_INIT_TEMPLATE_NAME = "github-worker";
+export const DEFAULT_INIT_BACKLOG_MANAGER_NAME = "github-issues";
 export const DEFAULT_INIT_EXECUTION_MODE: InitExecutionMode = "host";
 
 export interface InitExecutionModeOption {
@@ -47,6 +48,14 @@ export const templateSupportsInitExecutionMode = (
   template === DEFAULT_INIT_TEMPLATE_NAME
     ? executionMode === "host"
     : executionMode !== "host";
+
+export const templateSupportsInitBacklogManager = (
+  template: string,
+  backlogManager: string,
+): boolean =>
+  template === DEFAULT_INIT_TEMPLATE_NAME
+    ? backlogManager === DEFAULT_INIT_BACKLOG_MANAGER_NAME
+    : true;
 
 export const templateUsesSandcastleLabelPrompt = (template: string): boolean =>
   template !== DEFAULT_INIT_TEMPLATE_NAME;
