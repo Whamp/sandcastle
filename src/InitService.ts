@@ -23,26 +23,27 @@ const TEMPLATES: TemplateMetadata[] = [
   },
   {
     name: "blank",
-    description: "Bare scaffold — write your own prompt and orchestration",
+    description:
+      "Bare scaffold — write your own task coordination or execution flow",
   },
   {
     name: "simple-loop",
-    description: "Picks GitHub issues one by one and closes them",
+    description: "Coordinates backlog tasks one by one and closes them when done",
   },
   {
     name: "sequential-reviewer",
     description:
-      "Implements issues one by one, with a code review step after each",
+      "Coordinates backlog tasks one by one, with a code review step after each",
   },
   {
     name: "parallel-planner",
     description:
-      "Plans parallelizable issues, executes on separate branches, merges",
+      "Plans ready tasks, executes on separate branches, then lands the results",
   },
   {
     name: "parallel-planner-with-review",
     description:
-      "Plans parallelizable issues, executes with per-branch review, merges",
+      "Plans ready tasks, executes with per-branch review, then lands the results",
   },
 ];
 
@@ -347,7 +348,7 @@ export function getNextStepsLines(
       `${2}. Add "sandcastle": "npx tsx .sandcastle/${mainFilename}" to your package.json scripts`,
       `${3}. Read and customize .sandcastle/implement-prompt.md — Task Coordination selects the ready GitHub Issue Task before the agent runs`,
       `${4}. Promote the GitHub Issues you want worked by labeling ready Tasks with \`ready-for-agent\``,
-      `${5}. Run \`npm run sandcastle\` to start the host-first GitHub worker`,
+      `${5}. Run \`npm run sandcastle\` to start the host-first GitHub Issue Task Coordination worker`,
     ];
   }
 

@@ -52,7 +52,8 @@ describe("init defaults", () => {
   it("lists host execution as the default init execution mode option", () => {
     expect(getInitExecutionMode("host")).toMatchObject({
       name: "host",
-      label: "Host execution (no sandbox)",
+      label: "Host execution",
+      hint: "Recommended default for the host-first GitHub Issue Task Coordination worker",
     });
   });
 });

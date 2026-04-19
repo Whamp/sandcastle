@@ -1,41 +1,50 @@
 ---
 title: Getting Started
-description: Learn how to use Sandcastle to orchestrate AI coding agents in isolated sandbox environments.
+description: Learn how to use Sandcastle for host-first task coordination across host and sandboxed execution modes.
 ---
 
 ## What is Sandcastle?
 
-Sandcastle is a TypeScript CLI tool that orchestrates AI coding agents inside isolated sandbox environments. It manages the full lifecycle of running an agent against your codebase: syncing code into a sandbox, invoking the agent, and syncing changes back.
+Sandcastle is a TypeScript toolkit for host-first task coordination. The default happy path selects a ready GitHub Issue-backed Task, executes an agent directly on the host with worktree safety, lands the change, and closes the Issue-backed task after land succeeds.
 
-## Key Concepts
+Sandboxed execution remains available as a secondary execution mode when you want Docker, Podman, Vercel, or a custom provider.
 
-- **Sandbox** -- An isolated environment (Docker container or local directory) where an agent executes code
-- **Host** -- Your machine where Sandcastle runs and the real git repo lives
-- **Agent** -- The AI coding tool invoked inside the sandbox (e.g. Claude Code)
-- **Iteration** -- A single invocation of the agent, producing at most one commit
+## Key concepts
 
-## Quick Start
+- **Task Coordination** — selects ready tasks, claims them, executes them, lands changes, and closes their backlog artifacts
+- **Task vs Issue** — **Task** is the canonical backlog term; a GitHub **Issue** is the first backlog-specific representation
+- **Execution mode** — host execution is the default happy path; sandboxed execution remains optional
+- **Backlog adapter** — the integration that exposes tasks from one backlog system such as GitHub Issues
+- **Agent provider** — the coding-agent integration Sandcastle invokes for a run
+
+## Quick start
 
 ### 1. Install
 
 ```bash
-npm install -g sandcastle
+npm install @ai-hero/sandcastle
 ```
 
 ### 2. Initialize
 
-Run `sandcastle init` in your repository to scaffold the config directory:
+Run `sandcastle init` in your repository. The default happy path scaffolds a Pi-first, host-first GitHub Issue Task Coordination worker.
 
 ```bash
-sandcastle init
+npx sandcastle init
 ```
 
-This creates a `.sandcastle/` directory with a Dockerfile, prompt file, and configuration.
-
-### 3. Run
+### 3. Configure env vars
 
 ```bash
-sandcastle run
+cp .sandcastle/.env.example .sandcastle/.env
 ```
 
-Sandcastle will build the Docker image, sync your code into the sandbox, and start the agent.
+Fill in the required values for your chosen agent and backlog adapter.
+
+### 4. Run the scaffolded worker
+
+```bash
+npx tsx .sandcastle/main.mts
+```
+
+If your project's `package.json` uses `"type": "module"`, the scaffolded file will be `main.ts` instead.

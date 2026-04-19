@@ -1,4 +1,4 @@
 {
   "name": "simple-loop",
-  "description": "Picks GitHub issues one by one and closes them"
+  "description": "Coordinates backlog tasks one by one and closes them when done"
 }

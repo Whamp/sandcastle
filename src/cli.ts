@@ -229,7 +229,7 @@ const initCommand = Command.make(
             message:
               selectedTemplate === DEFAULT_INIT_TEMPLATE_NAME
                 ? `The ${DEFAULT_INIT_TEMPLATE_NAME} template currently supports host execution only. Choose host execution or select a sandbox-oriented template.`
-                : `The ${selectedTemplate} template currently expects Docker or Podman sandboxed execution. Choose Docker/Podman or switch to ${DEFAULT_INIT_TEMPLATE_NAME}.`,
+                : `The ${selectedTemplate} template currently expects Docker or Podman sandboxed execution. Choose Docker/Podman or switch to the host-first ${DEFAULT_INIT_TEMPLATE_NAME} template.`,
           }),
         );
       }
@@ -439,7 +439,7 @@ const dockerCommand = Command.make("docker", {}, () =>
   Effect.gen(function* () {
     const d = yield* Display;
     yield* d.status(
-      "Docker sandbox commands. Use --help to see available subcommands.",
+      "Docker sandboxed-execution commands. Use --help to see available subcommands.",
       "info",
     );
   }),
@@ -510,7 +510,7 @@ const podmanCommand = Command.make("podman", {}, () =>
   Effect.gen(function* () {
     const d = yield* Display;
     yield* d.status(
-      "Podman sandbox commands. Use --help to see available subcommands.",
+      "Podman sandboxed-execution commands. Use --help to see available subcommands.",
       "info",
     );
   }),

@@ -299,6 +299,20 @@ describe("InitService scaffold", () => {
     expect(mainTs).toContain('"@ai-hero/sandcastle"');
   });
 
+  it("blank template main.mts uses execution-flow wording in the starter comment", async () => {
+    const dir = await makeDir();
+    await runScaffold(dir, { templateName: "blank" });
+
+    const mainTs = await readFile(
+      join(dir, ".sandcastle", "main.mts"),
+      "utf-8",
+    );
+    expect(mainTs).toContain(
+      "customize this to build your own task coordination or execution flow",
+    );
+    expect(mainTs).not.toContain("orchestration");
+  });
+
   it("blank template main.mts calls run()", async () => {
     const dir = await makeDir();
     await runScaffold(dir, { templateName: "blank" });
@@ -431,6 +445,19 @@ describe("InitService scaffold", () => {
         templates.some((template) => template.name === "github-worker"),
       ).toBe(true);
     });
+  });
+
+  it("listTemplates uses task-coordination and execution wording on public init surfaces", () => {
+    const descriptions = Object.fromEntries(
+      listTemplates().map((template) => [template.name, template.description]),
+    );
+
+    expect(descriptions["blank"]).toBe(
+      "Bare scaffold — write your own task coordination or execution flow",
+    );
+    expect(descriptions["simple-loop"]).toContain("backlog tasks");
+    expect(descriptions["simple-loop"]).not.toContain("GitHub issues");
+    expect(descriptions["parallel-planner"]).toContain("ready tasks");
   });
 
   // --- main file rewriting ---
@@ -645,12 +672,12 @@ describe("InitService scaffold", () => {
   });
 
   describe("getNextStepsLines", () => {
-    it("github-worker template returns host-first GitHub worker guidance", () => {
+    it("github-worker template returns host-first Task Coordination worker guidance", () => {
       const lines = getNextStepsLines("github-worker", "main.mts");
       const joined = lines.join("\n");
       expect(joined).toContain("implement-prompt.md");
       expect(joined).toContain("ready-for-agent");
-      expect(joined).toContain("host-first GitHub worker");
+      expect(joined).toContain("host-first GitHub Issue Task Coordination worker");
       expect(joined).not.toContain("copyToWorktree");
       expect(joined).not.toContain("onSandboxReady");
     });

@@ -8,22 +8,22 @@
 
 ## What Is Sandcastle?
 
-A TypeScript library for orchestrating AI coding agents in host-first or sandboxed execution modes:
+A TypeScript library for host-first task coordination and AI agent execution across host and sandboxed execution modes:
 
-1. You invoke agents with a single `sandcastle.run()`.
-2. Sandcastle handles host or sandboxed execution with a configurable branch strategy.
-3. The commits made on the branches get merged back.
+1. Use `sandcastle.run()` directly, or let the GitHub Issue Task Coordination helpers select the next ready Task.
+2. Sandcastle executes the agent in the chosen execution mode with a configurable branch strategy.
+3. Landed changes merge back, and GitHub Issue-backed Tasks can be closed after land succeeds.
 
-Sandcastle is provider-agnostic — it ships with built-in providers for Docker, Podman, and Vercel, and you can create your own. Great for parallelizing multiple AFK agents, creating review pipelines, or even just orchestrating your own agents.
+Sandcastle is provider-agnostic — it ships with built-in execution providers for Docker, Podman, and Vercel, and you can create your own. The default happy path is a Pi-first, host-first GitHub Issue Task Coordination worker, while sandboxed execution remains available for isolated runs and custom flows.
 
 ## Prerequisites
 
 - [Git](https://git-scm.com/)
-- An execution provider. Sandcastle can run agents directly on the host or in an isolated sandbox. Built-in sandboxed options:
+- For sandboxed execution, an execution provider. Host execution via `noSandbox()` is built in. Bundled sandboxed options:
   - [Docker Desktop](https://www.docker.com/) — most common for local development
   - [Podman](https://podman.io/) — rootless alternative to Docker
   - [Vercel](https://vercel.com/) — cloud-based Firecracker microVMs via `@vercel/sandbox`
-  - Or [create your own](#custom-sandbox-providers) using `createBindMountSandboxProvider` or `createIsolatedSandboxProvider`
+  - Or [create your own](#custom-execution-providers) using `createBindMountSandboxProvider` or `createIsolatedSandboxProvider`
 
 ## Quick start
 
@@ -78,18 +78,18 @@ await executeNextGitHubIssueTask({
 });
 ```
 
-## Sandbox Providers
+## Execution Providers
 
-Sandcastle uses a `SandboxProvider` to select an execution mode. The `sandbox` option on `run()` and `createSandbox()` accepts any provider, including host execution via `noSandbox()`. Built-in providers:
+Sandcastle currently uses the `SandboxProvider` type and the `sandbox` option to select an execution mode. That surface can represent host execution via `noSandbox()` or sandboxed execution via Docker, Podman, Vercel, or custom providers. Built-in providers:
 
-| Provider   | Import path                                | Type       | Accepted by                                 |
-| ---------- | ------------------------------------------ | ---------- | ------------------------------------------- |
-| Docker     | `@ai-hero/sandcastle/sandboxes/docker`     | Bind-mount | `run()`, `createSandbox()`, `interactive()` |
-| Podman     | `@ai-hero/sandcastle/sandboxes/podman`     | Bind-mount | `run()`, `createSandbox()`, `interactive()` |
-| Vercel     | `@ai-hero/sandcastle/sandboxes/vercel`     | Isolated   | `run()`, `createSandbox()`, `interactive()` |
-| No-sandbox | `@ai-hero/sandcastle/sandboxes/no-sandbox` | None       | `run()`, `createSandbox()`, `interactive()` |
+| Provider         | Import path                                | Type       | Accepted by                                 |
+| ---------------- | ------------------------------------------ | ---------- | ------------------------------------------- |
+| Docker           | `@ai-hero/sandcastle/sandboxes/docker`     | Bind-mount | `run()`, `createSandbox()`, `interactive()` |
+| Podman           | `@ai-hero/sandcastle/sandboxes/podman`     | Bind-mount | `run()`, `createSandbox()`, `interactive()` |
+| Vercel           | `@ai-hero/sandcastle/sandboxes/vercel`     | Isolated   | `run()`, `createSandbox()`, `interactive()` |
+| Host execution   | `@ai-hero/sandcastle/sandboxes/no-sandbox` | Host       | `run()`, `createSandbox()`, `interactive()` |
 
-Worktree methods (`wt.run()`, `wt.interactive()`, `wt.createSandbox()`) accept the same providers as their top-level counterparts. `wt.interactive()` defaults to `noSandbox()` when no sandbox is specified.
+Worktree methods (`wt.run()`, `wt.interactive()`, `wt.createSandbox()`) accept the same providers as their top-level counterparts. `wt.interactive()` defaults to `noSandbox()` when no provider is specified.
 
 ```typescript
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
@@ -104,7 +104,7 @@ await run({
   prompt: "...",
 });
 
-// No-sandbox runs the agent directly on the host.
+// Host execution via noSandbox() runs the agent directly on the host.
 // For non-interactive runs it defaults to merge-to-head worktree safety.
 await run({
   agent: claudeCode("claude-opus-4-6"),
@@ -114,11 +114,11 @@ await run({
 });
 ```
 
-You can also [create your own provider](#custom-sandbox-providers) using `createBindMountSandboxProvider` or `createIsolatedSandboxProvider`.
+You can also [create your own provider](#custom-execution-providers) using `createBindMountSandboxProvider` or `createIsolatedSandboxProvider`.
 
 ## API
 
-Sandcastle exports a programmatic `run()` function for use in scripts, CI pipelines, or custom tooling. The examples below use `docker()`, but any `SandboxProvider` works in its place.
+Sandcastle exports a programmatic `run()` function for use in scripts, CI pipelines, or custom tooling. The examples below use `docker()`, but any execution provider (`SandboxProvider`) works in its place.
 
 ```typescript
 import { run, claudeCode } from "@ai-hero/sandcastle";
@@ -561,7 +561,7 @@ Passing `SOURCE_BRANCH` or `TARGET_BRANCH` in `promptArgs` is an error — built
 
 ### Early termination with `<promise>COMPLETE</promise>`
 
-When the agent outputs `<promise>COMPLETE</promise>`, the orchestrator stops the iteration loop early. This is a convention you document in your prompt for the agent to follow — the engine never injects it.
+When the agent outputs `<promise>COMPLETE</promise>`, Sandcastle stops the iteration loop early. This is a convention you document in your prompt for the agent to follow — the engine never injects it.
 
 This is useful for task-based workflows where the agent should stop once it has finished, rather than running all remaining iterations.
 
@@ -580,20 +580,20 @@ await run({
 });
 ```
 
-Tell the agent to output your chosen string(s) in the prompt, and the orchestrator will stop when it detects any of them. The matched signal is returned as `result.completionSignal`.
+Tell the agent to output your chosen string(s) in the prompt, and Sandcastle will stop when it detects any of them. The matched signal is returned as `result.completionSignal`.
 
 ### Templates
 
-`sandcastle init` prompts you to choose a template and an execution mode. Sandbox-oriented templates also prompt for a backlog manager. The default happy path is the `github-worker` template on host execution with Pi and GitHub Issues. That template stays pinned to GitHub Issues so its host-first Task Coordination scaffold, `ready-for-agent` guidance, and `GH_TOKEN` setup remain consistent with the GitHub-first single-adapter contract. If your project's `package.json` has `"type": "module"`, the file will be named `main.ts` instead. Six templates are available:
+`sandcastle init` prompts you to choose a template and an execution mode. Sandboxed-execution templates also prompt for a backlog manager. The default happy path is the `github-worker` template on host execution with Pi and GitHub Issues. That template stays pinned to GitHub Issues so its host-first Task Coordination scaffold, `ready-for-agent` guidance, and `GH_TOKEN` setup remain consistent with the GitHub-first single-adapter contract. If your project's `package.json` has `"type": "module"`, the file will be named `main.ts` instead. Six templates are available:
 
-| Template                       | Description                                                                   |
-| ------------------------------ | ----------------------------------------------------------------------------- |
-| `github-worker`                | Host-first GitHub Issue Task Coordination worker with a selected Task per run |
-| `blank`                        | Bare scaffold — write your own prompt and orchestration                       |
-| `simple-loop`                  | Picks GitHub issues one by one and closes them                                |
-| `sequential-reviewer`          | Implements issues one by one, with a code review step after each              |
-| `parallel-planner`             | Plans parallelizable issues, executes on separate branches, then merges       |
-| `parallel-planner-with-review` | Plans parallelizable issues, executes with per-branch review, then merges     |
+| Template                       | Description                                                                       |
+| ------------------------------ | --------------------------------------------------------------------------------- |
+| `github-worker`                | Host-first GitHub Issue Task Coordination worker with a selected Task per run     |
+| `blank`                        | Bare scaffold — write your own task coordination or execution flow                |
+| `simple-loop`                  | Coordinates backlog tasks one by one and closes them when done                    |
+| `sequential-reviewer`          | Coordinates backlog tasks one by one, with a code review step after each          |
+| `parallel-planner`             | Plans ready tasks, executes on separate branches, then lands the results          |
+| `parallel-planner-with-review` | Plans ready tasks, executes with per-branch review, then lands the results        |
 
 Select a template during `sandcastle init` when prompted, or re-run init in a fresh repo to try a different one.
 
@@ -601,7 +601,7 @@ Select a template during `sandcastle init` when prompted, or re-run init in a fr
 
 ### `sandcastle init`
 
-Scaffolds the `.sandcastle/` config directory. This is the first command you run in a new repo. The default happy path is host execution with the `github-worker` template, so init skips container-image setup and keeps the backlog manager on GitHub Issues. Sandbox-oriented templates still let you choose Docker or Podman during init — selecting Podman writes a `Containerfile` instead of `Dockerfile` and uses `sandcastle podman build-image` for the build step.
+Scaffolds the `.sandcastle/` config directory. This is the first command you run in a new repo. The default happy path is host execution with the `github-worker` template, so init skips container-image setup and keeps the backlog manager on GitHub Issues. Sandboxed-execution templates still let you choose Docker or Podman during init — selecting Podman writes a `Containerfile` instead of `Dockerfile` and uses `sandcastle podman build-image` for the build step.
 
 | Option         | Required | Default                                          | Description                                                          |
 | -------------- | -------- | ------------------------------------------------ | -------------------------------------------------------------------- |
@@ -614,13 +614,13 @@ The default `github-worker` path creates files like:
 
 ```
 .sandcastle/
-├── main.mts             # Host-first GitHub worker entrypoint
+├── main.mts             # Host-first GitHub Issue Task Coordination entrypoint
 ├── implement-prompt.md  # Instructions for the selected Task
 ├── .env.example         # Token placeholders
 └── .gitignore           # Ignores .env, logs/
 ```
 
-The `github-worker` template is intentionally fixed to GitHub Issues so the generated host-first worker, `ready-for-agent` labeling flow, and `.env.example` stay aligned. Sandbox-oriented templates also add a `Dockerfile` or `Containerfile` when you choose Docker or Podman.
+The `github-worker` template is intentionally fixed to GitHub Issues so the generated host-first GitHub Issue Task Coordination worker, `ready-for-agent` labeling flow, and `.env.example` stay aligned. Sandboxed-execution templates also add a `Dockerfile` or `Containerfile` when you choose Docker or Podman.
 
 Errors if `.sandcastle/` already exists to prevent overwriting customizations.
 
@@ -786,9 +786,9 @@ await run({
 
 Environment variables are also resolved automatically from `.sandcastle/.env` and `process.env` — no need to pass them to the API. The required variables depend on the **agent provider** (see `sandcastle init` output for details).
 
-## Custom Sandbox Providers
+## Custom Execution Providers
 
-Sandcastle ships with built-in providers for Docker, Podman, and Vercel, but you can create your own. A sandbox provider tells Sandcastle how to execute commands in an isolated environment. There are two kinds:
+Sandcastle ships with built-in providers for Docker, Podman, and Vercel, but you can create your own. `SandboxProvider` is the current execution-provider interface: it tells Sandcastle how to execute commands on the host or in sandboxed execution. The custom-provider factories below cover the two sandboxed kinds:
 
 - **Bind-mount** — the sandbox can mount a host directory. Sandcastle creates a worktree on the host and the provider mounts it in. No file sync needed. Use this for Docker, Podman, or any local container runtime.
 - **Isolated** — the sandbox has its own filesystem (e.g. a cloud VM). The provider handles syncing code in and out via `copyIn` and `copyFileOut`. Use this when the sandbox cannot access the host filesystem.

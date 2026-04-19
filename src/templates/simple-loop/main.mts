@@ -1,7 +1,7 @@
 import { run, claudeCode } from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 
-// Simple loop: an agent that picks open GitHub issues one by one and closes them.
+// Simple loop: an agent that coordinates backlog tasks one by one and closes them when done.
 // Run this with: npx tsx .sandcastle/main.mts
 // Or add to package.json scripts: "sandcastle": "npx tsx .sandcastle/main.mts"
 
@@ -22,7 +22,7 @@ await run({
   promptFile: "./.sandcastle/prompt.md",
 
   // Maximum number of iterations (agent invocations) to run in a session.
-  // Each iteration works on a single issue. Increase this to process more issues
+  // Each iteration works on a single task. Increase this to process more tasks
   // per run, or set it to 1 for a single-shot mode.
   maxIterations: 3,
 

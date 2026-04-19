@@ -14,18 +14,18 @@ export interface InitExecutionModeOption {
 const INIT_EXECUTION_MODES: readonly InitExecutionModeOption[] = [
   {
     name: "host",
-    label: "Host execution (no sandbox)",
-    hint: "Recommended for the host-first GitHub worker",
+    label: "Host execution",
+    hint: "Recommended default for the host-first GitHub Issue Task Coordination worker",
   },
   {
     name: "docker",
     label: "Docker sandboxed execution",
-    hint: "Use with sandbox-oriented templates",
+    hint: "Use with sandboxed-execution templates",
   },
   {
     name: "podman",
     label: "Podman sandboxed execution",
-    hint: "Use with sandbox-oriented templates",
+    hint: "Use with sandboxed-execution templates",
   },
 ];
 

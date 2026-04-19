@@ -1,20 +1,21 @@
-// Parallel Planner with Review — four-phase orchestration loop
+// Parallel Planner with Review — four-phase task-coordination loop
 //
 // This template drives a multi-phase workflow:
-//   Phase 1 (Plan):             An opus agent analyzes open issues, builds a
-//                               dependency graph, and outputs a <plan> JSON
-//                               listing unblocked issues with branch names.
-//   Phase 2 (Execute + Review): For each issue, a sandbox is created via
+//   Phase 1 (Plan):             An opus agent analyzes open backlog tasks,
+//                               builds a dependency graph, and outputs a
+//                               <plan> JSON listing unblocked tasks with
+//                               branch names.
+//   Phase 2 (Execute + Review): For each task, a sandbox is created via
 //                               createSandbox(). The implementer runs first
 //                               (100 iterations). If it produces commits, a
 //                               reviewer runs in the same sandbox on the same
-//                               branch (1 iteration). All issue pipelines run
+//                               branch (1 iteration). All task pipelines run
 //                               concurrently via Promise.allSettled().
 //   Phase 3 (Merge):            A single agent merges all completed branches
 //                               into the current branch.
 //
 // The outer loop repeats up to MAX_ITERATIONS times so that newly unblocked
-// issues are picked up after each round of merges.
+// tasks are picked up after each round of merges.
 //
 // Usage:
 //   npx tsx .sandcastle/main.mts

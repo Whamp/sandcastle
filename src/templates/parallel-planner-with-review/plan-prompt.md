@@ -1,6 +1,6 @@
 # ISSUES
 
-Here are the open issues in the repo:
+Here are the open backlog tasks in the repo:
 
 <issues-json>
 
@@ -10,7 +10,7 @@ Here are the open issues in the repo:
 
 # TASK
 
-Analyze the open issues and build a dependency graph. For each issue, determine whether it **blocks** or **is blocked by** any other open issue.
+Analyze the open tasks and build a dependency graph. For each task, determine whether it **blocks** or **is blocked by** any other open task.
 
 An issue B is **blocked by** issue A if:
 
@@ -18,7 +18,7 @@ An issue B is **blocked by** issue A if:
 - B and A modify overlapping files or modules, making concurrent work likely to produce merge conflicts
 - B's requirements depend on a decision or API shape that A will establish
 
-An issue is **unblocked** if it has zero blocking dependencies on other open issues.
+A task is **unblocked** if it has zero blocking dependencies on other open tasks.
 
 For each unblocked issue, assign a branch name using the format `sandcastle/issue-{id}-{slug}`.
 

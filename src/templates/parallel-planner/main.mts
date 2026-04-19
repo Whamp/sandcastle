@@ -1,15 +1,15 @@
-// Parallel Planner — three-phase orchestration loop
+// Parallel Planner — three-phase task-coordination loop
 //
 // This template drives a multi-phase workflow:
-//   Phase 1 (Plan):    An opus agent analyzes open issues, builds a dependency
-//                      graph, and outputs a <plan> JSON listing unblocked issues
-//                      with their target branch names.
+//   Phase 1 (Plan):    An opus agent analyzes open backlog tasks, builds a
+//                      dependency graph, and outputs a <plan> JSON listing
+//                      unblocked tasks with their target branch names.
 //   Phase 2 (Execute): N sonnet agents run in parallel via Promise.allSettled,
-//                      each working a single issue on its own branch.
+//                      each working a single task on its own branch.
 //   Phase 3 (Merge):   A sonnet agent merges all branches that produced commits.
 //
 // The outer loop repeats up to MAX_ITERATIONS times so that newly unblocked
-// issues are picked up after each round of merges.
+// tasks are picked up after each round of merges.
 //
 // Usage:
 //   npx tsx .sandcastle/main.mts

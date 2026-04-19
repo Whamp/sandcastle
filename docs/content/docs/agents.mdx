@@ -9,13 +9,13 @@ An agent provider defines how Sandcastle interacts with a specific AI coding too
 
 - An **env manifest** -- which environment variables it requires
 - An **env check** -- validation that runs before the agent starts
-- A **Dockerfile template** -- used during `sandcastle init` to scaffold the sandbox
+- A **Dockerfile template** -- used during `sandcastle init` when you choose sandboxed execution
 
 ## Built-in Providers
 
 ### Claude Code
 
-The default agent provider. Uses Claude Code as the AI coding agent inside the sandbox.
+The default agent provider. Uses Claude Code as the AI coding agent in Sandcastle-managed execution.
 
 Required environment variables:
 
