@@ -24,12 +24,23 @@ export interface GitHubIssueTaskDependency {
 export interface GitHubIssueTask {
   readonly issue: GitHubIssue;
   readonly parentIssueNumber?: number;
+  readonly followOnFromIssueNumber?: number;
   readonly dependencies: readonly GitHubIssueTaskDependency[];
 }
 
 export interface GitHubIssueTaskReadiness {
   readonly status: "ready" | "blocked";
   readonly unresolvedDependencies: readonly GitHubIssueTaskDependency[];
+}
+
+export interface GitHubIssueProposedFollowOn {
+  readonly title: string;
+  readonly body: string;
+}
+
+export interface CreateProposedFollowOnTaskOptions {
+  readonly currentTask: GitHubIssueTask;
+  readonly followOn: GitHubIssueProposedFollowOn;
 }
 
 export type TaskCoordinationCommentEvent =
@@ -103,16 +114,47 @@ const NEEDS_ATTENTION_LABEL_DESCRIPTION =
 const withRepo = (args: string[], repo?: string): string[] =>
   repo ? [...args, "--repo", repo] : args;
 
+const escapeRegExp = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 const parseSection = (body: string, heading: string): string | undefined => {
-  const escapedHeading = heading.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const match = body.match(
     new RegExp(
-      `## ${escapedHeading}\\s*([\\s\\S]*?)(?=\\n##\\s+[^\\n]+|$)`,
+      `## ${escapeRegExp(heading)}\\s*([\\s\\S]*?)(?=\\n##\\s+[^\\n]+|$)`,
       "i",
     ),
   );
 
   return match?.[1]?.trim();
+};
+
+const formatSection = (heading: string, content: string): string =>
+  `## ${heading}\n\n${content.trim()}`;
+
+const upsertSection = (
+  body: string,
+  heading: string,
+  content: string,
+): string => {
+  const trimmedBody = body.trim();
+  const formattedSection = formatSection(heading, content);
+  const sectionPattern = new RegExp(
+    `(^|\\n)## ${escapeRegExp(heading)}\\s*[\\s\\S]*?(?=\\n##\\s+[^\\n]+|$)`,
+    "i",
+  );
+
+  if (!trimmedBody) {
+    return formattedSection;
+  }
+
+  if (sectionPattern.test(trimmedBody)) {
+    return trimmedBody.replace(
+      sectionPattern,
+      (_match, prefix: string) => `${prefix}${formattedSection}`,
+    );
+  }
+
+  return `${trimmedBody}\n\n${formattedSection}`;
 };
 
 const parseIssueReferences = (text?: string): number[] => {
@@ -142,9 +184,50 @@ export const parseParentIssueNumber = (body: string): number | undefined =>
 export const parseBlockedByIssueNumbers = (body: string): number[] =>
   parseExplicitBlockedByIssueReferences(parseSection(body, "Blocked by"));
 
+export const parseFollowOnFromIssueNumber = (
+  body: string,
+): number | undefined =>
+  parseIssueReferences(parseSection(body, "Follow-on from"))[0];
+
+const buildProposedFollowOnIssueBody = (
+  options: CreateProposedFollowOnTaskOptions,
+): string => {
+  const parentSection =
+    parseSection(options.currentTask.issue.body, "Parent") ??
+    (options.currentTask.parentIssueNumber
+      ? `#${options.currentTask.parentIssueNumber}`
+      : undefined);
+  let body = options.followOn.body.trim();
+
+  if (parentSection) {
+    body = upsertSection(body, "Parent", parentSection);
+  }
+
+  return upsertSection(
+    body,
+    "Follow-on from",
+    `- Follow-on from #${options.currentTask.issue.number}`,
+  );
+};
+
+const parseCreatedIssueNumber = (output: string): number => {
+  const match =
+    output.match(/\/issues\/(\d+)(?:\s|$)/) ?? output.match(/#(\d+)\b/);
+  const issueNumber = match?.[1] ? Number(match[1]) : Number.NaN;
+
+  if (Number.isNaN(issueNumber)) {
+    throw new Error(
+      `Unable to parse created issue number from gh output: ${output.trim()}`,
+    );
+  }
+
+  return issueNumber;
+};
+
 export const mapGitHubIssueToTask = (issue: GitHubIssue): GitHubIssueTask => ({
   issue,
   parentIssueNumber: parseParentIssueNumber(issue.body),
+  followOnFromIssueNumber: parseFollowOnFromIssueNumber(issue.body),
   dependencies: Array.from(new Set(parseBlockedByIssueNumbers(issue.body))).map(
     (issueNumber) => ({
       issueNumber,
@@ -473,6 +556,17 @@ export class GitHubIssueBacklog {
     return undefined;
   }
 
+  async createProposedFollowOnTask(
+    options: CreateProposedFollowOnTaskOptions,
+  ): Promise<GitHubIssueTask> {
+    const createdIssue = await this.createIssue({
+      title: options.followOn.title.trim(),
+      body: buildProposedFollowOnIssueBody(options),
+    });
+
+    return mapGitHubIssueToTask(createdIssue);
+  }
+
   async claimTask(
     issueNumber: number,
     comment: TaskCoordinationComment,
@@ -530,6 +624,28 @@ export class GitHubIssueBacklog {
 
   async closeTask(issueNumber: number): Promise<void> {
     await this.#gh(["issue", "close", String(issueNumber)]);
+  }
+
+  private async createIssue(options: {
+    readonly title: string;
+    readonly body: string;
+    readonly labels?: readonly string[];
+  }): Promise<GitHubIssue> {
+    const args = [
+      "issue",
+      "create",
+      "--title",
+      options.title,
+      "--body",
+      options.body,
+    ];
+
+    for (const label of options.labels ?? []) {
+      args.push("--label", label);
+    }
+
+    const output = await this.#gh(args);
+    return this.getIssue(parseCreatedIssueNumber(output));
   }
 
   private async ensureNeedsAttentionLabel(): Promise<void> {

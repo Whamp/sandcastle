@@ -3,6 +3,7 @@ import {
   DEFAULT_TASK_CLAIM_LEASE_MS,
   getTaskCoordinationClaimState,
   type GitHubIssue,
+  type GitHubIssueProposedFollowOn,
   type GitHubIssueTask,
   type TaskCoordinationComment,
 } from "./GitHubIssueBacklog.js";
@@ -22,6 +23,10 @@ export interface GitHubIssueSuccessPathBacklog {
     issueNumber: number,
     comment: TaskCoordinationComment,
   ): Promise<void>;
+  createProposedFollowOnTask(options: {
+    readonly currentTask: GitHubIssueTask;
+    readonly followOn: GitHubIssueProposedFollowOn;
+  }): Promise<GitHubIssueTask>;
   markTaskNeedsAttention(
     issueNumber: number,
     comment: TaskCoordinationComment,
@@ -36,6 +41,8 @@ export interface GitHubIssueSuccessPathBacklog {
 export interface GitHubIssueTaskRunResult {
   readonly branch: string;
   readonly commits: ReadonlyArray<{ readonly sha: string }>;
+  readonly stdout?: string;
+  readonly proposedFollowOn?: GitHubIssueProposedFollowOn;
 }
 
 export interface ExecuteGitHubIssueTaskOptions {
@@ -55,6 +62,8 @@ export interface GitHubIssueSuccessPathOptions {
 export interface GitHubIssueSuccessPathResult {
   readonly selectedTask?: GitHubIssueTask;
   readonly parentIssue?: GitHubIssue;
+  readonly proposedFollowOnTask?: GitHubIssueTask;
+  readonly proposedFollowOnError?: string;
   readonly runId?: string;
   readonly executionMode: "host";
   readonly runResult?: GitHubIssueTaskRunResult;
@@ -100,6 +109,114 @@ const getExecutionFailureReason = (error: unknown): string => {
 
   const reason = String(error).trim();
   return reason.length > 0 ? reason : "Unknown execution failure.";
+};
+
+export const TASK_COORDINATION_RESULT_TAG =
+  "sandcastle-task-coordination-result";
+
+const hasConcreteProposedFollowOn = (
+  proposedFollowOn: GitHubIssueProposedFollowOn,
+): boolean =>
+  proposedFollowOn.title.trim().length > 0 &&
+  proposedFollowOn.body.trim().length > 0;
+
+const parseTaskCoordinationProposedFollowOnResult = (
+  stdout: string | undefined,
+): GitHubIssueProposedFollowOn | undefined => {
+  if (!stdout) {
+    return undefined;
+  }
+
+  const matches = Array.from(
+    stdout.matchAll(
+      new RegExp(
+        `<${TASK_COORDINATION_RESULT_TAG}>\\s*([\\s\\S]*?)\\s*</${TASK_COORDINATION_RESULT_TAG}>`,
+        "gi",
+      ),
+    ),
+  );
+  const payload = matches.at(-1)?.[1]?.trim();
+
+  if (!payload) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(payload) as Partial<{
+      proposedFollowOn: GitHubIssueProposedFollowOn;
+    }>;
+
+    if (
+      typeof parsed.proposedFollowOn?.title !== "string" ||
+      typeof parsed.proposedFollowOn?.body !== "string"
+    ) {
+      return undefined;
+    }
+
+    return {
+      title: parsed.proposedFollowOn.title.trim(),
+      body: parsed.proposedFollowOn.body.trim(),
+    };
+  } catch {
+    return undefined;
+  }
+};
+
+const normalizeGitHubIssueTaskRunResult = (
+  runResult: GitHubIssueTaskRunResult,
+): GitHubIssueTaskRunResult => {
+  if (runResult.proposedFollowOn) {
+    return {
+      ...runResult,
+      proposedFollowOn: {
+        title: runResult.proposedFollowOn.title.trim(),
+        body: runResult.proposedFollowOn.body.trim(),
+      },
+    };
+  }
+
+  const proposedFollowOn = parseTaskCoordinationProposedFollowOnResult(
+    runResult.stdout,
+  );
+  if (!proposedFollowOn) {
+    return runResult;
+  }
+
+  return {
+    ...runResult,
+    proposedFollowOn,
+  };
+};
+
+const createProposedFollowOnOutcome = async (options: {
+  readonly backlog: GitHubIssueSuccessPathBacklog;
+  readonly currentTask: GitHubIssueTask;
+  readonly proposedFollowOn?: GitHubIssueProposedFollowOn;
+}): Promise<
+  Pick<
+    GitHubIssueSuccessPathResult,
+    "proposedFollowOnTask" | "proposedFollowOnError"
+  >
+> => {
+  if (
+    !options.proposedFollowOn ||
+    !hasConcreteProposedFollowOn(options.proposedFollowOn)
+  ) {
+    return {};
+  }
+
+  try {
+    return {
+      proposedFollowOnTask: await options.backlog.createProposedFollowOnTask({
+        currentTask: options.currentTask,
+        followOn: options.proposedFollowOn,
+      }),
+    };
+  } catch (error) {
+    return {
+      proposedFollowOnError: getExecutionFailureReason(error),
+    };
+  }
 };
 
 export const executeNextGitHubIssueTask = async (
@@ -157,7 +274,9 @@ export const executeNextGitHubIssueTask = async (
 
   let runResult: GitHubIssueTaskRunResult;
   try {
-    runResult = await options.executeTask({ selectedTask, parentIssue });
+    runResult = normalizeGitHubIssueTaskRunResult(
+      await options.executeTask({ selectedTask, parentIssue }),
+    );
   } catch (error) {
     await options.backlog.markTaskNeedsAttention(
       selectedTask.issue.number,
@@ -171,6 +290,13 @@ export const executeNextGitHubIssueTask = async (
     );
     throw error;
   }
+
+  const { proposedFollowOnTask, proposedFollowOnError } =
+    await createProposedFollowOnOutcome({
+      backlog: options.backlog,
+      currentTask: selectedTask,
+      proposedFollowOn: runResult.proposedFollowOn,
+    });
 
   if (runResult.commits.length === 0) {
     await options.backlog.releaseTask(
@@ -188,6 +314,8 @@ export const executeNextGitHubIssueTask = async (
     return {
       selectedTask,
       parentIssue,
+      proposedFollowOnTask,
+      proposedFollowOnError,
       runId,
       executionMode,
       runResult,
@@ -211,6 +339,8 @@ export const executeNextGitHubIssueTask = async (
   return {
     selectedTask,
     parentIssue,
+    proposedFollowOnTask,
+    proposedFollowOnError,
     runId,
     executionMode,
     runResult,
