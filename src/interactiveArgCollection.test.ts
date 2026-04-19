@@ -20,6 +20,7 @@ import {
   type InteractiveExecOptions,
 } from "./SandboxProvider.js";
 import { claudeCode } from "./AgentProvider.js";
+import { createIsolatedGitEnv } from "./testSandbox.js";
 
 describe("interactive arg collection", () => {
   let hostDir: string;
@@ -57,6 +58,7 @@ describe("interactive arg collection", () => {
     createBindMountSandboxProvider({
       name: "test-interactive",
       create: async (options) => {
+        const env = { ...process.env, ...createIsolatedGitEnv() };
         const handle: BindMountSandboxHandle = {
           worktreePath: options.worktreePath,
           exec: async (command) => {
@@ -64,6 +66,7 @@ describe("interactive arg collection", () => {
               cwd: options.worktreePath,
               encoding: "utf-8",
               stdio: ["pipe", "pipe", "pipe"],
+              env,
             });
             return { stdout: result, stderr: "", exitCode: 0 };
           },

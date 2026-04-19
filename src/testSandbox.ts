@@ -16,10 +16,13 @@ import { type ExecResult, Sandbox } from "./SandboxFactory.js";
  * Creates an isolated git global config env so that test sandbox
  * `git config --global` writes don't corrupt the developer's real ~/.gitconfig.
  */
-const createIsolatedGitEnv = (): Record<string, string> => {
+export const createIsolatedGitEnv = (): Record<string, string> => {
   const tmpDir = mkdtempSync(join(tmpdir(), "test-gitconfig-"));
   const globalConfigPath = join(tmpDir, ".gitconfig");
-  writeFileSync(globalConfigPath, "");
+  writeFileSync(
+    globalConfigPath,
+    `[user]\n  name = Test\n  email = test@test.com\n`,
+  );
   return { GIT_CONFIG_GLOBAL: globalConfigPath };
 };
 

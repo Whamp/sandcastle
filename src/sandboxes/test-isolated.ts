@@ -17,6 +17,7 @@ import {
   type IsolatedSandboxHandle,
   type IsolatedSandboxProvider,
 } from "../SandboxProvider.js";
+import { createIsolatedGitEnv } from "../testSandbox.js";
 
 /**
  * Create a filesystem-based test isolated sandbox provider.
@@ -31,6 +32,7 @@ export const testIsolated = (): IsolatedSandboxProvider =>
     create: async (): Promise<IsolatedSandboxHandle> => {
       const sandboxRoot = await mkdtemp(join(tmpdir(), "sandcastle-test-"));
       const worktreePath = join(sandboxRoot, "workspace");
+      const env = { ...process.env, ...createIsolatedGitEnv() };
       await mkdir(worktreePath, { recursive: true });
 
       return {
@@ -50,6 +52,7 @@ export const testIsolated = (): IsolatedSandboxProvider =>
               const proc = spawn("sh", ["-c", command], {
                 cwd: options?.cwd ?? worktreePath,
                 stdio: ["ignore", "pipe", "pipe"],
+                env,
               });
 
               const stdoutChunks: string[] = [];
@@ -86,6 +89,7 @@ export const testIsolated = (): IsolatedSandboxProvider =>
               {
                 cwd: options?.cwd ?? worktreePath,
                 maxBuffer: 10 * 1024 * 1024,
+                env,
               },
               (error, stdout, stderr) => {
                 if (error && error.code === undefined) {

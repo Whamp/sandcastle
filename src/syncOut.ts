@@ -28,6 +28,7 @@ import { Effect } from "effect";
 import type { IsolatedSandboxHandle } from "./SandboxProvider.js";
 import { buildRecoveryMessage, type FailedStep } from "./RecoveryMessage.js";
 import { SyncError } from "./errors.js";
+import { syncIn } from "./syncIn.js";
 
 /**
  * Execute a command on the host side, returning stdout.
@@ -368,5 +369,10 @@ export const syncOut = (
         catch: () =>
           new SyncError({ message: "Failed to clean up patch directory" }),
       });
+
+      // Realign the isolated sandbox with the host after successful apply.
+      // syncOut can rewrite commit SHAs on the host via format-patch/git am,
+      // so re-syncing avoids invalid revision ranges on later sandbox runs.
+      yield* syncIn(hostRepoDir, handle);
     }
   });
