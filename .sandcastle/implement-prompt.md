@@ -37,6 +37,19 @@ If applicable, use RGR to complete the task.
 3. REPEAT until done
 4. REFACTOR the code
 
+# PROPOSED FOLLOW-ON TASKS
+
+If execution discovers one concrete, repo-relevant, non-blocking follow-on Task that should go back to Backlog Curation, emit exactly one structured result payload in your final output before `<promise>COMPLETE</promise>`:
+
+<sandcastle-task-coordination-result>
+{"proposedFollowOn":{"title":"Concrete follow-on Task title","body":"## What to build\n\nDescribe the concrete follow-on Task.\n"}}
+</sandcastle-task-coordination-result>
+
+Rules:
+- Emit this only for one non-blocking proposed follow-on Task. If none is needed, omit the tag entirely.
+- Keep the JSON valid. Do not wrap the tagged payload in a markdown code fence.
+- Do not create, close, or relabel the GitHub Issue yourself. Task Coordination will translate this into a proposed follow-on GitHub Issue, preserve lineage, and keep it outside normal ready selection until Backlog Curation promotes it.
+
 # FEEDBACK LOOPS
 
 Before committing, run `npm run typecheck` and `npm run test` to ensure the tests pass.

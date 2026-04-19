@@ -63,6 +63,7 @@ export interface GitHubIssueSuccessPathResult {
   readonly selectedTask?: GitHubIssueTask;
   readonly parentIssue?: GitHubIssue;
   readonly proposedFollowOnTask?: GitHubIssueTask;
+  readonly proposedFollowOnError?: string;
   readonly runId?: string;
   readonly executionMode: "host";
   readonly runResult?: GitHubIssueTaskRunResult;
@@ -187,6 +188,37 @@ const normalizeGitHubIssueTaskRunResult = (
   };
 };
 
+const createProposedFollowOnOutcome = async (options: {
+  readonly backlog: GitHubIssueSuccessPathBacklog;
+  readonly currentTask: GitHubIssueTask;
+  readonly proposedFollowOn?: GitHubIssueProposedFollowOn;
+}): Promise<
+  Pick<
+    GitHubIssueSuccessPathResult,
+    "proposedFollowOnTask" | "proposedFollowOnError"
+  >
+> => {
+  if (
+    !options.proposedFollowOn ||
+    !hasConcreteProposedFollowOn(options.proposedFollowOn)
+  ) {
+    return {};
+  }
+
+  try {
+    return {
+      proposedFollowOnTask: await options.backlog.createProposedFollowOnTask({
+        currentTask: options.currentTask,
+        followOn: options.proposedFollowOn,
+      }),
+    };
+  } catch (error) {
+    return {
+      proposedFollowOnError: getExecutionFailureReason(error),
+    };
+  }
+};
+
 export const executeNextGitHubIssueTask = async (
   options: GitHubIssueSuccessPathOptions,
 ): Promise<GitHubIssueSuccessPathResult> => {
@@ -259,14 +291,12 @@ export const executeNextGitHubIssueTask = async (
     throw error;
   }
 
-  const proposedFollowOnTask =
-    runResult.proposedFollowOn &&
-    hasConcreteProposedFollowOn(runResult.proposedFollowOn)
-      ? await options.backlog.createProposedFollowOnTask({
-          currentTask: selectedTask,
-          followOn: runResult.proposedFollowOn,
-        })
-      : undefined;
+  const { proposedFollowOnTask, proposedFollowOnError } =
+    await createProposedFollowOnOutcome({
+      backlog: options.backlog,
+      currentTask: selectedTask,
+      proposedFollowOn: runResult.proposedFollowOn,
+    });
 
   if (runResult.commits.length === 0) {
     await options.backlog.releaseTask(
@@ -285,6 +315,7 @@ export const executeNextGitHubIssueTask = async (
       selectedTask,
       parentIssue,
       proposedFollowOnTask,
+      proposedFollowOnError,
       runId,
       executionMode,
       runResult,
@@ -309,6 +340,7 @@ export const executeNextGitHubIssueTask = async (
     selectedTask,
     parentIssue,
     proposedFollowOnTask,
+    proposedFollowOnError,
     runId,
     executionMode,
     runResult,

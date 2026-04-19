@@ -38,28 +38,38 @@ const makeHostFirstIssueAgentWithProposedFollowOn = (
     type: "assistant",
     message: { content: [{ type: "text", text: "working" }] },
   });
-  const resultLine = JSON.stringify({
-    type: "result",
-    result: [
+  const promptSupportsProposedFollowOn = (prompt: string): boolean =>
+    [
       `<${TASK_COORDINATION_RESULT_TAG}>`,
-      JSON.stringify({ proposedFollowOn }),
-      `</${TASK_COORDINATION_RESULT_TAG}>`,
-      "<promise>COMPLETE</promise>",
-    ].join("\n"),
-  });
+      '"proposedFollowOn"',
+      "Backlog Curation",
+    ].every((snippet) => prompt.includes(snippet));
 
   return {
     name: "github-issue-success-path-agent-with-proposed-follow-on",
     env: {},
-    buildPrintCommand: () =>
-      [
+    buildPrintCommand: ({ prompt }) => {
+      const resultLine = JSON.stringify({
+        type: "result",
+        result: promptSupportsProposedFollowOn(prompt)
+          ? [
+              `<${TASK_COORDINATION_RESULT_TAG}>`,
+              JSON.stringify({ proposedFollowOn }),
+              `</${TASK_COORDINATION_RESULT_TAG}>`,
+              "<promise>COMPLETE</promise>",
+            ].join("\n")
+          : "<promise>COMPLETE</promise>",
+      });
+
+      return [
         `printf '%s\\n' ${shellEscape(assistantLine)}`,
         `printf '%s\\n' ${shellEscape("agent-start")} >> ${shellEscape(eventsPath)}`,
         `echo 'implemented from selected issue' > ${shellEscape("issue-task-output.txt")}`,
         `git add ${shellEscape("issue-task-output.txt")}`,
         `git commit -m ${shellEscape("host-first issue task commit")}`,
         `printf '%s\\n' ${shellEscape(resultLine)}`,
-      ].join(" && "),
+      ].join(" && ");
+    },
     parseStreamLine: baseProvider.parseStreamLine,
   };
 };
@@ -81,6 +91,7 @@ interface InMemoryIssue {
 const createInMemoryGh = (options: {
   readonly issues: InMemoryIssue[];
   readonly failCloseIssueNumbers?: ReadonlySet<number>;
+  readonly failCreateIssueTitles?: ReadonlySet<string>;
 }) => {
   const issuesByNumber = new Map(
     options.issues.map((issue) => [issue.number, issue]),
@@ -128,6 +139,10 @@ const createInMemoryGh = (options: {
 
       if (!title || body === undefined) {
         throw new Error(`Unsupported gh args: ${args.join(" ")}`);
+      }
+
+      if (options.failCreateIssueTitles?.has(title)) {
+        throw new Error(`create failed for issue title "${title}"`);
       }
 
       const number =
@@ -504,6 +519,121 @@ describe("executeNextGitHubIssueTask", () => {
     expect((await backlog.selectNextReadyTask())?.issue.number).toBe(8);
   });
 
+  it("treats proposed follow-on creation as best-effort so a landed Task still records done and closes", async () => {
+    const issues: InMemoryIssue[] = [
+      {
+        number: 1,
+        title: "PRD: host-first Task Coordination core for GitHub Issues",
+        body: "",
+        state: "OPEN",
+        labels: [],
+        comments: [],
+        url: "https://example.test/issues/1",
+      },
+      {
+        number: 7,
+        title: "Current Task with non-blocking follow-on work",
+        body: "## Parent\n\n#1\n\n## What to build\n\nLand the current Task before Backlog Curation promotes anything else.\n",
+        state: "OPEN",
+        labels: ["ready-for-agent"],
+        comments: [],
+        url: "https://example.test/issues/7",
+      },
+    ];
+
+    const backlog = new GitHubIssueBacklog({
+      gh: createInMemoryGh({
+        issues,
+        failCreateIssueTitles: new Set([
+          "Document the upstream promotion checkpoint",
+        ]),
+      }),
+    });
+    const result = await executeNextGitHubIssueTask({
+      backlog,
+      runId: "run-proposed-follow-on-create-failure",
+      now: () => new Date("2026-04-19T00:00:00.000Z"),
+      executeTask: async () => ({
+        branch: "main",
+        commits: [{ sha: "commit-7" }],
+        proposedFollowOn: {
+          title: "Document the upstream promotion checkpoint",
+          body: "## What to build\n\nCapture the upstream promotion decision for the proposed Task.\n",
+        },
+      }),
+    });
+
+    expect(result.selectedTask?.issue.number).toBe(7);
+    expect(result.closed).toBe(true);
+    expect(result.proposedFollowOnTask).toBeUndefined();
+    expect(result.proposedFollowOnError).toBe(
+      'create failed for issue title "Document the upstream promotion checkpoint"',
+    );
+
+    const currentIssue = issues.find((issue) => issue.number === 7)!;
+    expect(currentIssue.state).toBe("CLOSED");
+    expect(issues).toHaveLength(2);
+    expect(
+      currentIssue.comments
+        .map((comment) => parseTaskCoordinationComment(comment.body))
+        .filter((comment) => comment !== undefined)
+        .map((comment) => comment.event),
+    ).toEqual(["claim", "done"]);
+  });
+
+  it("treats proposed follow-on creation as best-effort so a non-landed Task still releases its claim", async () => {
+    const issues: InMemoryIssue[] = [
+      {
+        number: 3,
+        title: "Task without a landed change",
+        body: "",
+        state: "OPEN",
+        labels: ["ready-for-agent"],
+        comments: [],
+        url: "https://example.test/issues/3",
+      },
+    ];
+
+    const backlog = new GitHubIssueBacklog({
+      gh: createInMemoryGh({
+        issues,
+        failCreateIssueTitles: new Set([
+          "Document the upstream promotion checkpoint",
+        ]),
+      }),
+    });
+    const result = await executeNextGitHubIssueTask({
+      backlog,
+      runId: "run-proposed-follow-on-release-create-failure",
+      now: () => new Date("2026-04-19T00:00:00.000Z"),
+      executeTask: async () => ({
+        branch: "main",
+        commits: [],
+        proposedFollowOn: {
+          title: "Document the upstream promotion checkpoint",
+          body: "## What to build\n\nCapture the upstream promotion decision for the proposed Task.\n",
+        },
+      }),
+    });
+
+    expect(result.selectedTask?.issue.number).toBe(3);
+    expect(result.closed).toBe(false);
+    expect(result.proposedFollowOnTask).toBeUndefined();
+    expect(result.proposedFollowOnError).toBe(
+      'create failed for issue title "Document the upstream promotion checkpoint"',
+    );
+
+    const currentIssue = issues.find((issue) => issue.number === 3)!;
+    expect(currentIssue.state).toBe("OPEN");
+    expect(issues).toHaveLength(1);
+    expect(
+      currentIssue.comments
+        .map((comment) => parseTaskCoordinationComment(comment.body))
+        .filter((comment) => comment !== undefined)
+        .map((comment) => comment.event),
+    ).toEqual(["claim", "release"]);
+  });
+
   it("records release for a non-landed execution instead of treating it as dependency-blocked", async () => {
     const issues: InMemoryIssue[] = [
       {
@@ -699,8 +829,13 @@ describe("executeNextGitHubIssueTask", () => {
     ).toEqual(["claim", "done"]);
   });
 
-  it("claims the selected issue before host execution, can emit a proposed follow-on result tag, and still closes the current issue only after land", async () => {
+  it("claims the selected issue before host execution, uses the repo-local implement prompt to emit a proposed follow-on result tag, and still closes the current issue only after land", async () => {
     const originalCwd = process.cwd();
+    const repoImplementPromptPath = join(
+      originalCwd,
+      ".sandcastle",
+      "implement-prompt.md",
+    );
     const hostDir = mkdtempSync(
       join(tmpdir(), "sandcastle-github-issue-host-"),
     );
@@ -786,7 +921,15 @@ describe("executeNextGitHubIssueTask", () => {
             sandbox: noSandbox({
               env: { GIT_CONFIG_GLOBAL: globalConfigPath },
             }),
-            prompt: "Implement the selected GitHub Issue task.",
+            name: "Task-3",
+            promptFile: repoImplementPromptPath,
+            promptArgs: {
+              ISSUE_NUMBER: "3",
+              ISSUE_TITLE: "GitHub Issue success path",
+              PARENT_ISSUE_NUMBER: "1",
+              PARENT_ISSUE_TITLE:
+                "PRD: host-first Task Coordination core for GitHub Issues",
+            },
             logging: { type: "file", path: join(hostDir, "run.log") },
           });
         },

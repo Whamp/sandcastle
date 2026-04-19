@@ -33,3 +33,15 @@ if (!result.selectedTask) {
     `GitHub Issue #${result.selectedTask.issue.number} finished without a landed change; the claim was released.`,
   );
 }
+
+if (result.proposedFollowOnTask) {
+  console.log(
+    `Created proposed follow-on GitHub Issue #${result.proposedFollowOnTask.issue.number} from Task #${result.selectedTask?.issue.number}.`,
+  );
+}
+
+if (result.proposedFollowOnError) {
+  console.warn(
+    `Proposed follow-on GitHub Issue creation failed after current Task Coordination finished: ${result.proposedFollowOnError}`,
+  );
+}
