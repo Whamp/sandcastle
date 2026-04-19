@@ -358,6 +358,75 @@ describe("executeNextGitHubIssueTask", () => {
     ).toEqual(["claim", "release"]);
   });
 
+  it("records needs-attention, releases the claim, and rethrows when execution fails", async () => {
+    const issues: InMemoryIssue[] = [
+      {
+        number: 3,
+        title: "Task requiring intervention after execution failure",
+        body: "",
+        state: "OPEN",
+        labels: ["ready-for-agent"],
+        comments: [],
+        url: "https://example.test/issues/3",
+      },
+      {
+        number: 4,
+        title: "Next ready Task",
+        body: "",
+        state: "OPEN",
+        labels: ["ready-for-agent"],
+        comments: [],
+        url: "https://example.test/issues/4",
+      },
+    ];
+    const executionFailure = new Error(
+      "Manual intervention required to restore host execution.",
+    );
+
+    const backlog = new GitHubIssueBacklog({
+      gh: createInMemoryGh({ issues }),
+    });
+
+    await expect(
+      executeNextGitHubIssueTask({
+        backlog,
+        runId: "run-needs-attention",
+        now: () => new Date("2026-04-19T00:00:00.000Z"),
+        executeTask: async () => {
+          throw executionFailure;
+        },
+      }),
+    ).rejects.toBe(executionFailure);
+
+    const needsAttentionIssue = issues.find((issue) => issue.number === 3)!;
+    expect(needsAttentionIssue.state).toBe("OPEN");
+
+    const events = needsAttentionIssue.comments
+      .map((comment) => parseTaskCoordinationComment(comment.body))
+      .filter((comment) => comment !== undefined);
+    expect(events.map((comment) => comment.event)).toEqual([
+      "claim",
+      "needs-attention",
+    ]);
+    expect(events[1]).toMatchObject({
+      runId: "run-needs-attention",
+      reason: executionFailure.message,
+    });
+
+    const retryResult = await executeNextGitHubIssueTask({
+      backlog,
+      runId: "run-after-needs-attention",
+      now: () => new Date("2026-04-19T00:01:00.000Z"),
+      executeTask: async ({ selectedTask }: ExecuteGitHubIssueTaskOptions) => ({
+        branch: "main",
+        commits: [{ sha: `commit-${selectedTask.issue.number}` }],
+      }),
+    });
+
+    expect(retryResult.selectedTask?.issue.number).toBe(4);
+    expect(retryResult.closed).toBe(true);
+  });
+
   it("does not reselect a landed GitHub Issue Task after done is recorded but issue closure fails", async () => {
     const issues: InMemoryIssue[] = [
       {

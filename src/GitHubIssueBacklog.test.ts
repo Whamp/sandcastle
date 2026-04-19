@@ -51,7 +51,7 @@ const createFakeGh = (issues: FakeIssue[]) => {
 };
 
 describe("GitHubIssueBacklog task coordination comments", () => {
-  it("formats parseable structured claim, reclaim, release, and done comments", () => {
+  it("formats parseable structured claim, reclaim, release, needs-attention, and done comments", () => {
     const claim = formatTaskCoordinationComment({
       kind: "sandcastle-task-coordination",
       version: 1,
@@ -81,6 +81,15 @@ describe("GitHubIssueBacklog task coordination comments", () => {
       recordedAt: "2026-04-19T00:01:00.000Z",
       reason: "No landed change.",
     });
+    const needsAttention = formatTaskCoordinationComment({
+      kind: "sandcastle-task-coordination",
+      version: 1,
+      event: "needs-attention",
+      runId: "run-needs-attention",
+      executionMode: "host",
+      recordedAt: "2026-04-19T00:01:30.000Z",
+      reason: "Host execution failed and requires intervention.",
+    });
     const done = formatTaskCoordinationComment({
       kind: "sandcastle-task-coordination",
       version: 1,
@@ -97,6 +106,11 @@ describe("GitHubIssueBacklog task coordination comments", () => {
     );
     expect(parseTaskCoordinationComment(reclaim)?.event).toBe("reclaim");
     expect(parseTaskCoordinationComment(release)?.event).toBe("release");
+    expect(parseTaskCoordinationComment(needsAttention)?.event).toBe(
+      "needs-attention",
+    );
+    expect(needsAttention.toLowerCase()).toContain("needs attention");
+    expect(needsAttention).toContain("ordinary retry");
     expect(parseTaskCoordinationComment(done)?.event).toBe("done");
   });
 
@@ -147,6 +161,33 @@ describe("GitHubIssueBacklog task coordination comments", () => {
 
     expect(
       hasUnresolvedTaskCoordinationClaim([{ body: claim }, { body: release }]),
+    ).toBe(false);
+  });
+
+  it("treats a needs-attention comment as resolving a prior claim", () => {
+    const claim = formatTaskCoordinationComment({
+      kind: "sandcastle-task-coordination",
+      version: 1,
+      event: "claim",
+      runId: "run-claim",
+      executionMode: "host",
+      recordedAt: "2026-04-19T00:00:00.000Z",
+    });
+    const needsAttention = formatTaskCoordinationComment({
+      kind: "sandcastle-task-coordination",
+      version: 1,
+      event: "needs-attention",
+      runId: "run-needs-attention",
+      executionMode: "host",
+      recordedAt: "2026-04-19T00:01:00.000Z",
+      reason: "Manual intervention is required.",
+    });
+
+    expect(
+      hasUnresolvedTaskCoordinationClaim([
+        { body: claim },
+        { body: needsAttention },
+      ]),
     ).toBe(false);
   });
 });
@@ -328,6 +369,64 @@ describe("GitHubIssueBacklog.selectNextReadyTask", () => {
 
     expect(selectedTask).toMatchObject({
       issue: { number: 3 },
+      dependencies: [],
+    });
+  });
+
+  it("skips needs-attention tasks without reusing dependency-blocked semantics", async () => {
+    const needsAttentionComment = formatTaskCoordinationComment({
+      kind: "sandcastle-task-coordination",
+      version: 1,
+      event: "needs-attention",
+      runId: "run-needs-attention",
+      executionMode: "host",
+      recordedAt: "2026-04-19T00:00:00.000Z",
+      reason: "Manual intervention is required to restore host execution.",
+    });
+
+    const backlog = new GitHubIssueBacklog({
+      gh: createFakeGh([
+        {
+          number: 2,
+          title: "Execution failure that needs attention",
+          body: "",
+          state: "OPEN",
+          comments: [
+            {
+              body: needsAttentionComment,
+              createdAt: "2026-04-19T00:01:00.000Z",
+              author: { login: "sandcastle" },
+            },
+          ],
+        },
+        {
+          number: 3,
+          title: "Dependency-blocked implementation issue",
+          body: "## Blocked by\n\n- Blocked by #99\n",
+          state: "OPEN",
+          comments: [],
+        },
+        {
+          number: 4,
+          title: "Next ready implementation issue",
+          body: "",
+          state: "OPEN",
+          comments: [],
+        },
+        {
+          number: 99,
+          title: "Open dependency issue",
+          body: "",
+          state: "OPEN",
+          comments: [],
+        },
+      ]),
+    });
+
+    const selectedTask = await backlog.selectNextReadyTask();
+
+    expect(selectedTask).toMatchObject({
+      issue: { number: 4, title: "Next ready implementation issue" },
       dependencies: [],
     });
   });

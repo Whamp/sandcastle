@@ -35,6 +35,7 @@ export type TaskCoordinationCommentEvent =
   | "claim"
   | "reclaim"
   | "release"
+  | "needs-attention"
   | "done";
 
 export interface TaskCoordinationComment {
@@ -173,7 +174,9 @@ export const formatTaskCoordinationComment = (
         ? "Sandcastle Task Coordination reclaim"
         : comment.event === "release"
           ? "Sandcastle Task Coordination release"
-          : "Sandcastle Task Coordination done";
+          : comment.event === "needs-attention"
+            ? "Sandcastle Task Coordination needs attention"
+            : "Sandcastle Task Coordination done";
 
   const executionLabel =
     comment.executionMode === "host" ? "host execution" : "sandboxed execution";
@@ -184,7 +187,9 @@ export const formatTaskCoordinationComment = (
         ? `Sandcastle reclaimed a stale GitHub-backed Task claim lease${comment.reclaimedLeaseExpiresAt ? ` that expired at ${comment.reclaimedLeaseExpiresAt}` : ""} so Task Coordination can select the Task again.`
         : comment.event === "release"
           ? "This GitHub Issue Task claim has been released."
-          : "This GitHub Issue Task has landed through Task Coordination and is ready for closure.";
+          : comment.event === "needs-attention"
+            ? `This GitHub-backed Task needs attention rather than dependency-blocked treatment because ${executionLabel} failed in a way that requires intervention beyond ordinary retry.${comment.reason ? ` Reason: ${comment.reason}` : ""}`
+            : "This GitHub Issue Task has landed through Task Coordination and is ready for closure.";
 
   return `${headline}\n\n${description}\n\n\`\`\`json\n${JSON.stringify(comment, null, 2)}\n\`\`\``;
 };
@@ -209,6 +214,7 @@ export const parseTaskCoordinationComment = (
       (parsed.event !== "claim" &&
         parsed.event !== "reclaim" &&
         parsed.event !== "release" &&
+        parsed.event !== "needs-attention" &&
         parsed.event !== "done") ||
       (parsed.executionMode !== "host" &&
         parsed.executionMode !== "sandboxed") ||
@@ -235,12 +241,21 @@ export const parseTaskCoordinationComment = (
   }
 };
 
-export const hasRecordedTaskCoordinationDone = (
+const hasRecordedTaskCoordinationEvent = (
   comments: readonly GitHubIssueComment[],
+  event: TaskCoordinationCommentEvent,
 ): boolean =>
   comments.some(
-    (comment) => parseTaskCoordinationComment(comment.body)?.event === "done",
+    (comment) => parseTaskCoordinationComment(comment.body)?.event === event,
   );
+
+export const hasRecordedTaskCoordinationDone = (
+  comments: readonly GitHubIssueComment[],
+): boolean => hasRecordedTaskCoordinationEvent(comments, "done");
+
+export const hasRecordedTaskCoordinationNeedsAttention = (
+  comments: readonly GitHubIssueComment[],
+): boolean => hasRecordedTaskCoordinationEvent(comments, "needs-attention");
 
 const getLeaseExpiryTimestamp = (
   claim: TaskCoordinationComment,
@@ -297,6 +312,7 @@ export const getTaskCoordinationClaimState = (
     if (
       parsed.event === "reclaim" ||
       parsed.event === "release" ||
+      parsed.event === "needs-attention" ||
       parsed.event === "done"
     ) {
       activeClaim = undefined;
@@ -408,6 +424,10 @@ export class GitHubIssueBacklog {
         continue;
       }
 
+      if (hasRecordedTaskCoordinationNeedsAttention(issue.comments)) {
+        continue;
+      }
+
       if (
         hasUnresolvedTaskCoordinationClaim(issue.comments, {
           now: asOf,
@@ -461,6 +481,16 @@ export class GitHubIssueBacklog {
   }
 
   async releaseTask(
+    issueNumber: number,
+    comment: TaskCoordinationComment,
+  ): Promise<void> {
+    await this.commentOnIssue(
+      issueNumber,
+      formatTaskCoordinationComment(comment),
+    );
+  }
+
+  async markTaskNeedsAttention(
     issueNumber: number,
     comment: TaskCoordinationComment,
   ): Promise<void> {

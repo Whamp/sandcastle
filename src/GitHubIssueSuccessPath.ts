@@ -22,6 +22,10 @@ export interface GitHubIssueSuccessPathBacklog {
     issueNumber: number,
     comment: TaskCoordinationComment,
   ): Promise<void>;
+  markTaskNeedsAttention(
+    issueNumber: number,
+    comment: TaskCoordinationComment,
+  ): Promise<void>;
   markTaskDone(
     issueNumber: number,
     comment: TaskCoordinationComment,
@@ -89,6 +93,15 @@ const createComment = (
   reclaimedLeaseExpiresAt: options.reclaimedLeaseExpiresAt,
 });
 
+const getExecutionFailureReason = (error: unknown): string => {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+
+  const reason = String(error).trim();
+  return reason.length > 0 ? reason : "Unknown execution failure.";
+};
+
 export const executeNextGitHubIssueTask = async (
   options: GitHubIssueSuccessPathOptions,
 ): Promise<GitHubIssueSuccessPathResult> => {
@@ -142,7 +155,23 @@ export const executeNextGitHubIssueTask = async (
     }),
   );
 
-  const runResult = await options.executeTask({ selectedTask, parentIssue });
+  let runResult: GitHubIssueTaskRunResult;
+  try {
+    runResult = await options.executeTask({ selectedTask, parentIssue });
+  } catch (error) {
+    await options.backlog.markTaskNeedsAttention(
+      selectedTask.issue.number,
+      createComment({
+        event: "needs-attention",
+        runId,
+        executionMode,
+        now: now(),
+        reason: getExecutionFailureReason(error),
+      }),
+    );
+    throw error;
+  }
+
   if (runResult.commits.length === 0) {
     await options.backlog.releaseTask(
       selectedTask.issue.number,
