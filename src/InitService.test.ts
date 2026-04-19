@@ -379,7 +379,7 @@ describe("InitService scaffold", () => {
       expect(prompt).not.toContain("gh issue close");
     });
 
-    it("rejects non-GitHub backlog managers for the host-first GitHub worker", async () => {
+    it("rejects non-GitHub backlog adapters for the host-first GitHub worker", async () => {
       const dir = await makeDir();
 
       await expect(
@@ -391,7 +391,7 @@ describe("InitService scaffold", () => {
           backlogManager: getBacklogManager("beads"),
         }),
       ).rejects.toThrow(
-        "The github-worker template requires the github-issues backlog manager.",
+        "The github-worker template requires the github-issues backlog adapter.",
       );
 
       const { access } = await import("node:fs/promises");
@@ -447,7 +447,7 @@ describe("InitService scaffold", () => {
     });
   });
 
-  it("listTemplates uses task-coordination and execution wording on public init surfaces", () => {
+  it("listTemplates uses truthful task-coordination wording on public init surfaces", () => {
     const descriptions = Object.fromEntries(
       listTemplates().map((template) => [template.name, template.description]),
     );
@@ -457,7 +457,12 @@ describe("InitService scaffold", () => {
     );
     expect(descriptions["simple-loop"]).toContain("backlog tasks");
     expect(descriptions["simple-loop"]).not.toContain("GitHub issues");
-    expect(descriptions["parallel-planner"]).toContain("ready tasks");
+    expect(descriptions["parallel-planner"]).toBe(
+      "Plans open backlog tasks, infers dependencies, executes unblocked tasks on separate branches, then lands the results",
+    );
+    expect(descriptions["parallel-planner-with-review"]).toBe(
+      "Plans open backlog tasks, infers dependencies, executes with per-branch review, then lands the results",
+    );
   });
 
   // --- main file rewriting ---
@@ -689,7 +694,9 @@ describe("InitService scaffold", () => {
       const joined = lines.join("\n");
       expect(joined).toContain("implement-prompt.md");
       expect(joined).toContain("ready-for-agent");
-      expect(joined).toContain("host-first GitHub Issue Task Coordination worker");
+      expect(joined).toContain(
+        "host-first GitHub Issue Task Coordination worker",
+      );
       expect(joined).not.toContain("copyToWorktree");
       expect(joined).not.toContain("onSandboxReady");
     });
@@ -983,7 +990,9 @@ describe("InitService scaffold", () => {
       );
       expect(prompt).toContain("# TASKS");
       expect(prompt).toContain("<tasks-json>");
-      expect(prompt).toContain('{"tasks": [{"id": "42", "title": "Fix auth bug", "branch": "sandcastle/task-42-fix-auth-bug"}]}');
+      expect(prompt).toContain(
+        '{"tasks": [{"id": "42", "title": "Fix auth bug", "branch": "sandcastle/task-42-fix-auth-bug"}]}',
+      );
       expect(prompt).not.toContain("# ISSUES");
       expect(prompt).not.toContain("<issues-json>");
       expect(prompt).not.toContain('{"issues":');
@@ -1167,7 +1176,9 @@ describe("InitService scaffold", () => {
       );
       expect(prompt).toContain("# TASKS");
       expect(prompt).toContain("<tasks-json>");
-      expect(prompt).toContain('{"tasks": [{"id": "42", "title": "Fix auth bug", "branch": "sandcastle/task-42-fix-auth-bug"}]}');
+      expect(prompt).toContain(
+        '{"tasks": [{"id": "42", "title": "Fix auth bug", "branch": "sandcastle/task-42-fix-auth-bug"}]}',
+      );
       expect(prompt).not.toContain("# ISSUES");
       expect(prompt).not.toContain("<issues-json>");
       expect(prompt).not.toContain('{"issues":');
@@ -1536,7 +1547,9 @@ describe("InitService scaffold", () => {
         "utf-8",
       );
       expect(main).toContain("const { tasks } = JSON.parse");
-      expect(main).toContain("tasks: { id: string; title: string; branch: string }[]");
+      expect(main).toContain(
+        "tasks: { id: string; title: string; branch: string }[]",
+      );
       expect(main).toContain("TASK_ID: task.id");
       expect(main).toContain("TASK_TITLE: task.title");
       expect(main).toContain("TASKS: completedTasks");
@@ -1681,7 +1694,9 @@ describe("InitService scaffold", () => {
         "utf-8",
       );
       expect(main).toContain("const { tasks } = JSON.parse");
-      expect(main).toContain("tasks: { id: string; title: string; branch: string }[]");
+      expect(main).toContain(
+        "tasks: { id: string; title: string; branch: string }[]",
+      );
       expect(main).toContain("TASK_ID: task.id");
       expect(main).toContain("TASK_TITLE: task.title");
       expect(main).toContain("TASKS: completedTasks");

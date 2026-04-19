@@ -28,7 +28,8 @@ const TEMPLATES: TemplateMetadata[] = [
   },
   {
     name: "simple-loop",
-    description: "Coordinates backlog tasks one by one and closes them when done",
+    description:
+      "Coordinates backlog tasks one by one and closes them when done",
   },
   {
     name: "sequential-reviewer",
@@ -38,12 +39,12 @@ const TEMPLATES: TemplateMetadata[] = [
   {
     name: "parallel-planner",
     description:
-      "Plans ready tasks, executes on separate branches, then lands the results",
+      "Plans open backlog tasks, infers dependencies, executes unblocked tasks on separate branches, then lands the results",
   },
   {
     name: "parallel-planner-with-review",
     description:
-      "Plans ready tasks, executes with per-branch review, then lands the results",
+      "Plans open backlog tasks, infers dependencies, executes with per-branch review, then lands the results",
   },
 ];
 
@@ -680,10 +681,12 @@ export const scaffold = (
       );
     }
 
-    if (!templateSupportsInitBacklogManager(templateName, backlogManager.name)) {
+    if (
+      !templateSupportsInitBacklogManager(templateName, backlogManager.name)
+    ) {
       yield* Effect.fail(
         new Error(
-          `The ${templateName} template requires the github-issues backlog manager.`,
+          `The ${templateName} template requires the github-issues backlog adapter.`,
         ),
       );
     }

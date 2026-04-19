@@ -1,4 +1,4 @@
 {
   "name": "parallel-planner",
-  "description": "Plans ready tasks, executes on separate branches, then lands the results"
+  "description": "Plans open backlog tasks, infers dependencies, executes unblocked tasks on separate branches, then lands the results"
 }

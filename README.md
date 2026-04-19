@@ -82,12 +82,12 @@ await executeNextGitHubIssueTask({
 
 Sandcastle currently uses the `SandboxProvider` type and the `sandbox` option to select an execution mode. That surface can represent host execution via `noSandbox()` or sandboxed execution via Docker, Podman, Vercel, or custom providers. Built-in providers:
 
-| Provider         | Import path                                | Type       | Accepted by                                 |
-| ---------------- | ------------------------------------------ | ---------- | ------------------------------------------- |
-| Docker           | `@ai-hero/sandcastle/sandboxes/docker`     | Bind-mount | `run()`, `createSandbox()`, `interactive()` |
-| Podman           | `@ai-hero/sandcastle/sandboxes/podman`     | Bind-mount | `run()`, `createSandbox()`, `interactive()` |
-| Vercel           | `@ai-hero/sandcastle/sandboxes/vercel`     | Isolated   | `run()`, `createSandbox()`, `interactive()` |
-| Host execution   | `@ai-hero/sandcastle/sandboxes/no-sandbox` | Host       | `run()`, `createSandbox()`, `interactive()` |
+| Provider       | Import path                                | Type       | Accepted by                                 |
+| -------------- | ------------------------------------------ | ---------- | ------------------------------------------- |
+| Docker         | `@ai-hero/sandcastle/sandboxes/docker`     | Bind-mount | `run()`, `createSandbox()`, `interactive()` |
+| Podman         | `@ai-hero/sandcastle/sandboxes/podman`     | Bind-mount | `run()`, `createSandbox()`, `interactive()` |
+| Vercel         | `@ai-hero/sandcastle/sandboxes/vercel`     | Isolated   | `run()`, `createSandbox()`, `interactive()` |
+| Host execution | `@ai-hero/sandcastle/sandboxes/no-sandbox` | Host       | `run()`, `createSandbox()`, `interactive()` |
 
 Worktree methods (`wt.run()`, `wt.interactive()`, `wt.createSandbox()`) accept the same providers as their top-level counterparts. `wt.interactive()` defaults to `noSandbox()` when no provider is specified.
 
@@ -584,16 +584,16 @@ Tell the agent to output your chosen string(s) in the prompt, and Sandcastle wil
 
 ### Templates
 
-`sandcastle init` prompts you to choose a template and an execution mode. Sandboxed-execution templates also prompt for a backlog manager. The default happy path is the `github-worker` template on host execution with Pi and GitHub Issues. That template stays pinned to GitHub Issues so its host-first Task Coordination scaffold, `ready-for-agent` guidance, and `GH_TOKEN` setup remain consistent with the GitHub-first single-adapter contract. If your project's `package.json` has `"type": "module"`, the file will be named `main.ts` instead. Six templates are available:
+`sandcastle init` prompts you to choose a template and an execution mode. Sandboxed-execution templates also prompt for a backlog adapter. The default happy path is the `github-worker` template on host execution with Pi and GitHub Issues. That template stays pinned to GitHub Issues so its host-first Task Coordination scaffold, `ready-for-agent` guidance, and `GH_TOKEN` setup remain consistent with the GitHub-first single-adapter contract. If your project's `package.json` has `"type": "module"`, the file will be named `main.ts` instead. Six templates are available:
 
-| Template                       | Description                                                                       |
-| ------------------------------ | --------------------------------------------------------------------------------- |
-| `github-worker`                | Host-first GitHub Issue Task Coordination worker with a selected Task per run     |
-| `blank`                        | Bare scaffold — write your own task coordination or execution flow                |
-| `simple-loop`                  | Coordinates backlog tasks one by one and closes them when done                    |
-| `sequential-reviewer`          | Coordinates backlog tasks one by one, with a code review step after each          |
-| `parallel-planner`             | Plans ready tasks, executes on separate branches, then lands the results          |
-| `parallel-planner-with-review` | Plans ready tasks, executes with per-branch review, then lands the results        |
+| Template                       | Description                                                                                                          |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `github-worker`                | Host-first GitHub Issue Task Coordination worker with a selected Task per run                                        |
+| `blank`                        | Bare scaffold — write your own task coordination or execution flow                                                   |
+| `simple-loop`                  | Coordinates backlog tasks one by one and closes them when done                                                       |
+| `sequential-reviewer`          | Coordinates backlog tasks one by one, with a code review step after each                                             |
+| `parallel-planner`             | Plans open backlog tasks, infers dependencies, executes unblocked tasks on separate branches, then lands the results |
+| `parallel-planner-with-review` | Plans open backlog tasks, infers dependencies, executes with per-branch review, then lands the results               |
 
 Select a template during `sandcastle init` when prompted, or re-run init in a fresh repo to try a different one.
 
@@ -601,7 +601,7 @@ Select a template during `sandcastle init` when prompted, or re-run init in a fr
 
 ### `sandcastle init`
 
-Scaffolds the `.sandcastle/` config directory. This is the first command you run in a new repo. The default happy path is host execution with the `github-worker` template, so init skips container-image setup and keeps the backlog manager on GitHub Issues. Sandboxed-execution templates still let you choose Docker or Podman during init — selecting Podman writes a `Containerfile` instead of `Dockerfile` and uses `sandcastle podman build-image` for the build step.
+Scaffolds the `.sandcastle/` config directory. This is the first command you run in a new repo. The default happy path is host execution with the `github-worker` template, so init skips container-image setup and keeps the backlog adapter on GitHub Issues. Sandboxed-execution templates still let you choose Docker or Podman during init — selecting Podman writes a `Containerfile` instead of `Dockerfile` and uses `sandcastle podman build-image` for the build step.
 
 | Option         | Required | Default                                          | Description                                                          |
 | -------------- | -------- | ------------------------------------------------ | -------------------------------------------------------------------- |

@@ -1,4 +1,4 @@
 {
   "name": "parallel-planner-with-review",
-  "description": "Plans ready tasks, executes with per-branch review, then lands the results"
+  "description": "Plans open backlog tasks, infers dependencies, executes with per-branch review, then lands the results"
 }

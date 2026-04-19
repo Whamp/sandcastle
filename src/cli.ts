@@ -246,7 +246,7 @@ const initCommand = Command.make(
       if (backlogManagers.length === 0) {
         yield* Effect.fail(
           new InitError({
-            message: `No compatible backlog manager is available for the ${selectedTemplate} template.`,
+            message: `No compatible backlog adapter is available for the ${selectedTemplate} template.`,
           }),
         );
       }
@@ -257,7 +257,7 @@ const initCommand = Command.make(
       } else {
         const selected = yield* Effect.promise(() =>
           clack.select({
-            message: "Select a backlog manager:",
+            message: "Select a backlog adapter:",
             initialValue: "github-issues",
             options: backlogManagers.map((b) => ({
               value: b.name,
@@ -268,7 +268,7 @@ const initCommand = Command.make(
         if (clack.isCancel(selected)) {
           yield* Effect.fail(
             new InitError({
-              message: "Backlog manager selection cancelled.",
+              message: "Backlog adapter selection cancelled.",
             }),
           );
         }
