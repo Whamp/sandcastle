@@ -308,7 +308,7 @@ describe("InitService scaffold", () => {
       "utf-8",
     );
     expect(mainTs).toContain(
-      "customize this to build your own task coordination or execution flow",
+      "customize this to build your own execution flow or Task Coordination pattern",
     );
     expect(mainTs).not.toContain("orchestration");
   });
@@ -341,11 +341,11 @@ describe("InitService scaffold", () => {
     expect(prompt1).toBe(prompt2);
   });
 
-  describe("github-worker template", () => {
-    it("scaffolds a host-first GitHub worker that uses Task Coordination instead of prompt-driven backlog selection", async () => {
+  describe("github-issues-coordinator template", () => {
+    it("scaffolds a host-first GitHub Issues coordinator that uses Task Coordination instead of prompt-driven backlog selection", async () => {
       const dir = await makeDir();
       await runScaffold(dir, {
-        templateName: "github-worker",
+        templateName: "github-issues-coordinator",
         agent: piAgent,
         model: "claude-sonnet-4-6",
         executionMode: "host",
@@ -379,19 +379,19 @@ describe("InitService scaffold", () => {
       expect(prompt).not.toContain("gh issue close");
     });
 
-    it("rejects non-GitHub backlog adapters for the host-first GitHub worker", async () => {
+    it("rejects non-GitHub backlog adapters for the host-first GitHub Issues coordinator", async () => {
       const dir = await makeDir();
 
       await expect(
         runScaffold(dir, {
-          templateName: "github-worker",
+          templateName: "github-issues-coordinator",
           agent: piAgent,
           model: "claude-sonnet-4-6",
           executionMode: "host",
           backlogManager: getBacklogManager("beads"),
         }),
       ).rejects.toThrow(
-        "The github-worker template requires the github-issues backlog adapter.",
+        "The github-issues-coordinator template requires the github-issues backlog adapter.",
       );
 
       const { access } = await import("node:fs/promises");
@@ -401,7 +401,7 @@ describe("InitService scaffold", () => {
     it("host execution skips Dockerfile and Containerfile scaffolding", async () => {
       const dir = await makeDir();
       await runScaffold(dir, {
-        templateName: "github-worker",
+        templateName: "github-issues-coordinator",
         agent: piAgent,
         model: "claude-sonnet-4-6",
         executionMode: "host",
@@ -416,10 +416,10 @@ describe("InitService scaffold", () => {
       ).rejects.toThrow();
     });
 
-    it("still rewrites the default host-first GitHub worker to another swappable agent provider", async () => {
+    it("still rewrites the default host-first GitHub Issues coordinator to another swappable agent provider", async () => {
       const dir = await makeDir();
       await runScaffold(dir, {
-        templateName: "github-worker",
+        templateName: "github-issues-coordinator",
         agent: codexAgent,
         model: "gpt-5.4-mini",
         executionMode: "host",
@@ -434,7 +434,7 @@ describe("InitService scaffold", () => {
       expect(mainTs).not.toContain('pi("claude-sonnet-4-6")');
     });
 
-    it("exports the GitHub worker coordination primitives for scaffolded projects", () => {
+    it("exports the GitHub Issues coordination primitives for scaffolded projects", () => {
       expect(exportedGitHubIssueBacklog).toBeTypeOf("function");
       expect(exportedExecuteNextGitHubIssueTask).toBeTypeOf("function");
     });
@@ -442,7 +442,7 @@ describe("InitService scaffold", () => {
     it("appears in listTemplates()", () => {
       const templates = listTemplates();
       expect(
-        templates.some((template) => template.name === "github-worker"),
+        templates.some((template) => template.name === "github-issues-coordinator"),
       ).toBe(true);
     });
   });
@@ -453,15 +453,17 @@ describe("InitService scaffold", () => {
     );
 
     expect(descriptions["blank"]).toBe(
-      "Bare scaffold — write your own task coordination or execution flow",
+      "Bare scaffold — build your own execution flow or Task Coordination pattern",
     );
-    expect(descriptions["simple-loop"]).toContain("backlog tasks");
+    expect(descriptions["simple-loop"]).toContain(
+      "works one task at a time and closes each task after land",
+    );
     expect(descriptions["simple-loop"]).not.toContain("GitHub issues");
     expect(descriptions["parallel-planner"]).toBe(
-      "Plans open backlog tasks, infers dependencies, executes unblocked tasks on separate branches, then lands the results",
+      "Task Coordination template that plans task dependencies, executes ready tasks on separate branches, then lands the results",
     );
     expect(descriptions["parallel-planner-with-review"]).toBe(
-      "Plans open backlog tasks, infers dependencies, executes with per-branch review, then lands the results",
+      "Task Coordination template that plans task dependencies, executes ready tasks with per-branch review, then lands the results",
     );
   });
 
@@ -689,13 +691,13 @@ describe("InitService scaffold", () => {
   });
 
   describe("getNextStepsLines", () => {
-    it("github-worker template returns host-first Task Coordination worker guidance", () => {
-      const lines = getNextStepsLines("github-worker", "main.mts");
+    it("github-issues-coordinator template returns host-first coordinator guidance", () => {
+      const lines = getNextStepsLines("github-issues-coordinator", "main.mts");
       const joined = lines.join("\n");
       expect(joined).toContain("implement-prompt.md");
       expect(joined).toContain("ready-for-agent");
       expect(joined).toContain(
-        "host-first GitHub Issue Task Coordination worker",
+        "host-first GitHub Issues coordinator",
       );
       expect(joined).not.toContain("copyToWorktree");
       expect(joined).not.toContain("onSandboxReady");

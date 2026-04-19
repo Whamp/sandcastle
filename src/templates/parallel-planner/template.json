@@ -1,4 +1,4 @@
 {
   "name": "parallel-planner",
-  "description": "Plans open backlog tasks, infers dependencies, executes unblocked tasks on separate branches, then lands the results"
+  "description": "Task Coordination template that plans task dependencies, executes ready tasks on separate branches, then lands the results"
 }

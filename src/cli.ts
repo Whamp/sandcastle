@@ -82,7 +82,7 @@ const requireConfigDir = (
 
 const templateOption = Options.text("template").pipe(
   Options.withDescription(
-    "Template to scaffold (e.g. github-worker, blank, simple-loop)",
+    "Template to scaffold (e.g. github-issues-coordinator, blank, simple-loop)",
   ),
   Options.optional,
 );
@@ -228,8 +228,8 @@ const initCommand = Command.make(
           new InitError({
             message:
               selectedTemplate === DEFAULT_INIT_TEMPLATE_NAME
-                ? `The ${DEFAULT_INIT_TEMPLATE_NAME} template currently supports host execution only. Choose host execution or select a sandbox-oriented template.`
-                : `The ${selectedTemplate} template currently expects Docker or Podman sandboxed execution. Choose Docker/Podman or switch to the host-first ${DEFAULT_INIT_TEMPLATE_NAME} template.`,
+                ? `The ${DEFAULT_INIT_TEMPLATE_NAME} template currently supports host execution only. Choose host execution or select a template that runs in sandboxed execution.`
+                : `The ${selectedTemplate} template currently scaffolds Docker or Podman sandboxed execution. Choose Docker/Podman or switch to the host-first ${DEFAULT_INIT_TEMPLATE_NAME} template.`,
           }),
         );
       }

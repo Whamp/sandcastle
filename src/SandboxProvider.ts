@@ -1,5 +1,5 @@
 /**
- * Sandbox provider types — the pluggable interface for sandbox runtimes.
+ * Sandbox provider types — the pluggable interface for execution providers.
  *
  * Provider authors implement a small Promise-based interface. Sandcastle
  * handles worktree creation, git mount resolution, and commit extraction.

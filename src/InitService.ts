@@ -17,34 +17,34 @@ export interface TemplateMetadata {
 
 const TEMPLATES: TemplateMetadata[] = [
   {
-    name: "github-worker",
+    name: "github-issues-coordinator",
     description:
-      "Host-first GitHub Issue Task Coordination worker with a selected Task per run",
+      "Host-first Task Coordination template backed by GitHub Issues",
   },
   {
     name: "blank",
     description:
-      "Bare scaffold — write your own task coordination or execution flow",
+      "Bare scaffold — build your own execution flow or Task Coordination pattern",
   },
   {
     name: "simple-loop",
     description:
-      "Coordinates backlog tasks one by one and closes them when done",
+      "Task Coordination template that works one task at a time and closes each task after land",
   },
   {
     name: "sequential-reviewer",
     description:
-      "Coordinates backlog tasks one by one, with a code review step after each",
+      "Task Coordination template that works one task at a time with a review step before land",
   },
   {
     name: "parallel-planner",
     description:
-      "Plans open backlog tasks, infers dependencies, executes unblocked tasks on separate branches, then lands the results",
+      "Task Coordination template that plans task dependencies, executes ready tasks on separate branches, then lands the results",
   },
   {
     name: "parallel-planner-with-review",
     description:
-      "Plans open backlog tasks, infers dependencies, executes with per-branch review, then lands the results",
+      "Task Coordination template that plans task dependencies, executes ready tasks with per-branch review, then lands the results",
   },
 ];
 
@@ -342,14 +342,14 @@ export function getNextStepsLines(
   template: string,
   mainFilename: string,
 ): string[] {
-  if (template === "github-worker") {
+  if (template === "github-issues-coordinator") {
     return [
       "Next steps:",
       `1. Set the required env vars in .sandcastle/.env (see .sandcastle/.env.example)`,
       `${2}. Add "sandcastle": "npx tsx .sandcastle/${mainFilename}" to your package.json scripts`,
       `${3}. Read and customize .sandcastle/implement-prompt.md — Task Coordination selects the ready GitHub Issue Task before the agent runs`,
       `${4}. Promote the GitHub Issues you want worked by labeling ready Tasks with \`ready-for-agent\``,
-      `${5}. Run \`npm run sandcastle\` to start the host-first GitHub Issue Task Coordination worker`,
+      `${5}. Run \`npm run sandcastle\` to start the host-first GitHub Issues coordinator`,
     ];
   }
 

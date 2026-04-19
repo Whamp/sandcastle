@@ -1,7 +1,7 @@
 import { run, claudeCode } from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 
-// Simple loop: an agent that coordinates backlog tasks one by one and closes them when done.
+// Simple loop: a Task Coordination template that works one task at a time and closes each task after land.
 // Run this with: npx tsx .sandcastle/main.mts
 // Or add to package.json scripts: "sandcastle": "npx tsx .sandcastle/main.mts"
 
@@ -9,7 +9,7 @@ await run({
   // A name for this run, shown as a prefix in log output.
   name: "worker",
 
-  // Sandbox provider — Docker is the default runtime.
+  // Execution mode — this scaffold uses Docker sandboxed execution.
   sandbox: docker(),
 
   // The agent provider. Pass a model string to claudeCode() — sonnet balances
@@ -18,7 +18,8 @@ await run({
   agent: claudeCode("claude-sonnet-4-6"),
 
   // Path to the prompt file. Shell expressions inside are evaluated inside the
-  // sandbox at the start of each iteration, so the agent always sees fresh data.
+  // selected execution mode at the start of each iteration, so the agent always
+  // sees fresh data.
   promptFile: "./.sandcastle/prompt.md",
 
   // Maximum number of iterations (agent invocations) to run in a session.

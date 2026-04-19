@@ -1,7 +1,7 @@
 import type { InitExecutionMode } from "./InitService.js";
 
 export const DEFAULT_INIT_AGENT_NAME = "pi";
-export const DEFAULT_INIT_TEMPLATE_NAME = "github-worker";
+export const DEFAULT_INIT_TEMPLATE_NAME = "github-issues-coordinator";
 export const DEFAULT_INIT_BACKLOG_MANAGER_NAME = "github-issues";
 export const DEFAULT_INIT_EXECUTION_MODE: InitExecutionMode = "host";
 
@@ -15,17 +15,17 @@ const INIT_EXECUTION_MODES: readonly InitExecutionModeOption[] = [
   {
     name: "host",
     label: "Host execution",
-    hint: "Recommended default for the host-first GitHub Issue Task Coordination worker",
+    hint: "Recommended default for the host-first GitHub Issues coordinator template",
   },
   {
     name: "docker",
     label: "Docker sandboxed execution",
-    hint: "Use with sandboxed-execution templates",
+    hint: "Use with templates that run in sandboxed execution",
   },
   {
     name: "podman",
     label: "Podman sandboxed execution",
-    hint: "Use with sandboxed-execution templates",
+    hint: "Use with templates that run in sandboxed execution",
   },
 ];
 

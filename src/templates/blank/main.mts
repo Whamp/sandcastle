@@ -1,7 +1,7 @@
 import { run, claudeCode } from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 
-// Blank template: customize this to build your own task coordination or execution flow.
+// Blank template: customize this to build your own execution flow or Task Coordination pattern.
 // Run this with: npx tsx .sandcastle/main.mts
 // Or add to package.json scripts: "sandcastle": "npx tsx .sandcastle/main.mts"
 

@@ -1,4 +1,4 @@
 {
   "name": "sequential-reviewer",
-  "description": "Coordinates backlog tasks one by one, with a code review step after each"
+  "description": "Task Coordination template that works one task at a time with a review step before land"
 }

@@ -24,7 +24,7 @@ The default happy path is:
 
 That makes Pi the default coding agent without collapsing Sandcastle into a Pi-only tool.
 
-On the default host GitHub worker path, the host also needs the `gh` CLI available because the GitHub Issues backlog adapter reads and updates Issue-backed Tasks through GitHub CLI. The scaffolded `.env.example` includes `GH_TOKEN` for that backlog adapter; it is not a Pi-specific requirement.
+On the default host GitHub Issues coordinator path, the host also needs the `gh` CLI available because the GitHub Issues backlog adapter reads and updates Issue-backed Tasks through GitHub CLI. The scaffolded `.env.example` includes `GH_TOKEN` for that backlog adapter; it is not a Pi-specific requirement.
 
 ## Built-in providers
 
@@ -75,12 +75,12 @@ When you scaffold a worker, `.sandcastle/.env.example` is assembled from both si
 - the chosen **agent provider**
 - the chosen **backlog adapter**
 
-For example, the default host-first GitHub worker typically includes:
+For example, the default host-first GitHub Issues coordinator typically includes:
 
 - `ANTHROPIC_API_KEY` from the Pi agent provider
 - `GH_TOKEN` from the GitHub Issues backlog adapter
 
-So seeing `GH_TOKEN` in the default worker does not mean GitHub is part of the agent provider. It means the selected backlog adapter needs GitHub access to project Task Coordination state onto GitHub Issues.
+So seeing `GH_TOKEN` in the default GitHub Issues coordinator template does not mean GitHub is part of the agent provider. It means the selected backlog adapter needs GitHub access to project Task Coordination state onto GitHub Issues.
 
 ## Custom providers
 

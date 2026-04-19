@@ -5,7 +5,7 @@ description: Learn how to use Sandcastle for host-first task coordination across
 
 ## What is Sandcastle?
 
-Sandcastle is a TypeScript toolkit for host-first task coordination. The default happy path selects a ready GitHub Issue-backed Task, executes an agent directly on the host with worktree safety, lands the change, and closes the Issue-backed task after land succeeds.
+Sandcastle is a TypeScript toolkit for host-first Task Coordination. The default happy path is the `github-issues-coordinator` template: it selects a ready GitHub Issue-backed Task, executes an agent directly on the host with worktree safety, lands the change, and closes the Issue-backed task after land succeeds.
 
 Sandboxed execution remains available as a secondary execution mode when you want Docker, Podman, Vercel, or a custom provider.
 
@@ -27,7 +27,7 @@ npm install @ai-hero/sandcastle
 
 ### 2. Initialize
 
-Run `sandcastle init` in your repository. The default happy path scaffolds a Pi-first, host-first GitHub Issue Task Coordination worker.
+Run `sandcastle init` in your repository. The default happy path scaffolds the Pi-first `github-issues-coordinator` template backed by GitHub Issues and host execution.
 
 ```bash
 npx sandcastle init

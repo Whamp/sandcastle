@@ -68,14 +68,14 @@ _Avoid_: Equating implemented or committed with done
 
 **Execution mode**:
 The environment shape Task Coordination uses to run an agent.
-_Avoid_: Using sandbox as the generic execution term
+_Avoid_: Using sandbox or runtime as the generic execution term
 
 **Host execution**:
 An execution mode where the agent runs directly on the host.
 _Avoid_: No-sandbox as the primary prose term
 
 **Sandboxed execution**:
-An execution mode where the agent runs inside an isolated environment.
+An execution mode where the agent runs inside an isolated environment such as Docker, Podman, or a remote provider like Vercel.
 _Avoid_: Container as the generic term
 
 **Agent provider**:
@@ -122,3 +122,5 @@ _Avoid_: Workspace
 - **"Claim"** vs **"Task state"** — a **claim** is coordination metadata, not lifecycle state
 - **"Implemented"** vs **"Done"** — a task can be implemented without being **done**; **done** requires land plus issue closure
 - **"Sandbox"** vs **"Execution mode"** — **execution mode** is the generic term; **sandboxed execution** is only one variant
+- **"Runtime"** vs **"Execution mode"** — **runtime** is too overloaded for top-level product language and should stay provider-specific (for example Vercel runtime)
+- **"GitHub Issues coordinator"** vs **"GitHub-hosted worker"** — avoid **GitHub Issues coordinator** as public prose. Use **Task Coordination worker backed by the GitHub Issues backlog adapter**. The scaffold template name is `github-issues-coordinator`; it does not mean execution happens on GitHub

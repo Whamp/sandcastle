@@ -8,13 +8,13 @@
 
 ## What Is Sandcastle?
 
-A TypeScript library for host-first task coordination and AI agent execution across host and sandboxed execution modes:
+A TypeScript library for host-first Task Coordination with generic agent execution underneath:
 
-1. Use `sandcastle.run()` directly, or let the GitHub Issue Task Coordination helpers select the next ready Task.
-2. Sandcastle executes the agent in the chosen execution mode with a configurable branch strategy.
-3. Landed changes merge back, and GitHub Issue-backed Tasks can be closed after land succeeds.
+1. Use `sandcastle.run()` directly for custom execution flows, or use the GitHub Issue Task Coordination helpers on the default `github-issues-coordinator` path.
+2. An **execution mode** decides where the agent runs: host execution on your machine by default, or sandboxed execution with Docker, Podman, Vercel, or a custom provider.
+3. A **backlog adapter** projects Tasks from a system like GitHub Issues into Sandcastle's Task Coordination model.
 
-Sandcastle is provider-agnostic — it ships with built-in execution providers for Docker, Podman, and Vercel, and you can create your own. The default happy path is a Pi-first, host-first GitHub Issue Task Coordination worker, while sandboxed execution remains available for isolated runs and custom flows.
+Sandcastle is provider-agnostic — it ships with built-in execution providers for Docker, Podman, and Vercel, and you can create your own. The default happy path is the Pi-first `github-issues-coordinator` template: host execution on your machine, GitHub Issues as the backlog adapter, and worktree safety for landing changes. Sandboxed execution remains available for isolated runs and custom flows.
 
 ## Prerequisites
 
@@ -33,13 +33,13 @@ Sandcastle is provider-agnostic — it ships with built-in execution providers f
 npm install @ai-hero/sandcastle
 ```
 
-2. Run `sandcastle init`. The default happy path scaffolds a Pi-first, host-first GitHub Issue Task Coordination worker.
+2. Run `sandcastle init`. The default happy path scaffolds the Pi-first `github-issues-coordinator` template backed by GitHub Issues and host execution.
 
 ```bash
 npx sandcastle init
 ```
 
-3. Edit `.sandcastle/.env` and fill in the required values from `.sandcastle/.env.example` (typically `ANTHROPIC_API_KEY` and `GH_TOKEN` on the default GitHub worker path). If you want to use your Claude subscription instead of an API key, see [#191](https://github.com/mattpocock/sandcastle/issues/191).
+3. Edit `.sandcastle/.env` and fill in the required values from `.sandcastle/.env.example` (typically `ANTHROPIC_API_KEY` and `GH_TOKEN` on the default `github-issues-coordinator` template). If you want to use your Claude subscription instead of an API key, see [#191](https://github.com/mattpocock/sandcastle/issues/191).
 
 ```bash
 cp .sandcastle/.env.example .sandcastle/.env
@@ -584,16 +584,16 @@ Tell the agent to output your chosen string(s) in the prompt, and Sandcastle wil
 
 ### Templates
 
-`sandcastle init` prompts you to choose a template and an execution mode. Sandboxed-execution templates also prompt for a backlog adapter. The default happy path is the `github-worker` template on host execution with Pi and GitHub Issues. That template stays pinned to GitHub Issues so its host-first Task Coordination scaffold, `ready-for-agent` guidance, and `GH_TOKEN` setup remain consistent with the GitHub-first single-adapter contract. If your project's `package.json` has `"type": "module"`, the file will be named `main.ts` instead. Six templates are available:
+`sandcastle init` prompts you to choose a template and an execution mode. The default host-first Task Coordination path is the `github-issues-coordinator` template. The other non-blank templates are Task Coordination patterns that currently scaffold Docker or Podman sandboxed execution, while `blank` is the generic execution escape hatch. Templates that run in sandboxed execution also prompt for a backlog adapter. If your project's `package.json` has `"type": "module"`, the file will be named `main.ts` instead. Six templates are available:
 
-| Template                       | Description                                                                                                          |
-| ------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| `github-worker`                | Host-first GitHub Issue Task Coordination worker with a selected Task per run                                        |
-| `blank`                        | Bare scaffold — write your own task coordination or execution flow                                                   |
-| `simple-loop`                  | Coordinates backlog tasks one by one and closes them when done                                                       |
-| `sequential-reviewer`          | Coordinates backlog tasks one by one, with a code review step after each                                             |
-| `parallel-planner`             | Plans open backlog tasks, infers dependencies, executes unblocked tasks on separate branches, then lands the results |
-| `parallel-planner-with-review` | Plans open backlog tasks, infers dependencies, executes with per-branch review, then lands the results               |
+| Template                       | Description                                                                                               |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `github-issues-coordinator`    | Host-first Task Coordination template backed by GitHub Issues                                             |
+| `blank`                        | Bare scaffold — build your own execution flow or Task Coordination pattern                                |
+| `simple-loop`                  | Task Coordination template that works one task at a time and closes each task after land                 |
+| `sequential-reviewer`          | Task Coordination template that works one task at a time with a review step before land                  |
+| `parallel-planner`             | Task Coordination template that plans task dependencies, executes ready tasks on separate branches, then lands the results |
+| `parallel-planner-with-review` | Task Coordination template that plans task dependencies, executes ready tasks with per-branch review, then lands the results |
 
 Select a template during `sandcastle init` when prompted, or re-run init in a fresh repo to try a different one.
 
@@ -601,26 +601,26 @@ Select a template during `sandcastle init` when prompted, or re-run init in a fr
 
 ### `sandcastle init`
 
-Scaffolds the `.sandcastle/` config directory. This is the first command you run in a new repo. The default happy path is host execution with the `github-worker` template, so init skips container-image setup and keeps the backlog adapter on GitHub Issues. Sandboxed-execution templates still let you choose Docker or Podman during init — selecting Podman writes a `Containerfile` instead of `Dockerfile` and uses `sandcastle podman build-image` for the build step.
+Scaffolds the `.sandcastle/` config directory. This is the first command you run in a new repo. The default happy path is host execution with the `github-issues-coordinator` template, so init skips container-image setup and keeps the backlog adapter on GitHub Issues. Templates that run in sandboxed execution still let you choose Docker or Podman during init — selecting Podman writes a `Containerfile` instead of `Dockerfile` and uses `sandcastle podman build-image` for the build step.
 
 | Option         | Required | Default                                          | Description                                                          |
 | -------------- | -------- | ------------------------------------------------ | -------------------------------------------------------------------- |
 | `--image-name` | No       | `sandcastle:<repo-dir-name>`                     | Docker image name                                                    |
 | `--agent`      | No       | Interactive prompt (defaults to Pi)              | Agent to use (`claude-code`, `pi`, `codex`, `opencode`)              |
 | `--model`      | No       | Agent's default model                            | Model to use (e.g. `claude-sonnet-4-6`). Defaults to agent's default |
-| `--template`   | No       | Interactive prompt (defaults to `github-worker`) | Template to scaffold (e.g. `github-worker`, `blank`, `simple-loop`)  |
+| `--template`   | No       | Interactive prompt (defaults to `github-issues-coordinator`) | Template to scaffold (e.g. `github-issues-coordinator`, `blank`, `simple-loop`)  |
 
-The default `github-worker` path creates files like:
+The default `github-issues-coordinator` path creates files like:
 
 ```
 .sandcastle/
-├── main.mts             # Host-first GitHub Issue Task Coordination entrypoint
+├── main.mts             # Host-first Task Coordination entrypoint backed by GitHub Issues
 ├── implement-prompt.md  # Instructions for the selected Task
 ├── .env.example         # Token placeholders
 └── .gitignore           # Ignores .env, logs/
 ```
 
-The `github-worker` template is intentionally fixed to GitHub Issues so the generated host-first GitHub Issue Task Coordination worker, `ready-for-agent` labeling flow, and `.env.example` stay aligned. Sandboxed-execution templates also add a `Dockerfile` or `Containerfile` when you choose Docker or Podman.
+The `github-issues-coordinator` template is intentionally fixed to GitHub Issues so the generated host-first Task Coordination scaffold, GitHub Issues backlog adapter, `ready-for-agent` labeling flow, and `.env.example` stay aligned. Templates that run in sandboxed execution also add a `Dockerfile` or `Containerfile` when you choose Docker or Podman.
 
 Errors if `.sandcastle/` already exists to prevent overwriting customizations.
 

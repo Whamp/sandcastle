@@ -1,4 +1,4 @@
 {
   "name": "simple-loop",
-  "description": "Coordinates backlog tasks one by one and closes them when done"
+  "description": "Task Coordination template that works one task at a time and closes each task after land"
 }
