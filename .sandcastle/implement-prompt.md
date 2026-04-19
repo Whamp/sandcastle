@@ -1,12 +1,16 @@
-# TASK
+# TASK COORDINATION
 
-Fix issue #{{ISSUE_NUMBER}}: {{ISSUE_TITLE}}
+Task Coordination already selected the GitHub Issue-backed Task.
 
-Pull in the issue using `gh issue view`, with comments. If it has a parent PRD, pull that in too.
+- Selected Issue: #{{ISSUE_NUMBER}} — {{ISSUE_TITLE}}
+- Parent PRD: {{PARENT_ISSUE_NUMBER}} — {{PARENT_ISSUE_TITLE}}
+- Execution mode: host execution
+- Source branch for this run: {{SOURCE_BRANCH}}
+- Target branch for land: {{TARGET_BRANCH}}
 
-Only work on the issue specified.
+Pull in the selected issue using `gh issue view`, with comments. If `{{PARENT_ISSUE_NUMBER}}` is not `none`, pull in that parent PRD too.
 
-Work on branch {{BRANCH}}. Make commits, run tests, and close the issue when done.
+Only work on the selected GitHub Issue Task. Do not choose from the backlog.
 
 # CONTEXT
 
@@ -53,7 +57,7 @@ Keep it concise.
 
 If the task is not complete, leave a comment on the GitHub issue with what was done.
 
-Do not close the issue - this will be done later.
+Do not close the issue. Task Coordination will only close the GitHub Issue after the landed change is on the target branch.
 
 Once complete, output <promise>COMPLETE</promise>.
 
