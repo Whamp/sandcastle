@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { claudeCode, type AgentProvider } from "./AgentProvider.js";
 import {
+  formatTaskCoordinationComment,
   GitHubIssueBacklog,
   parseTaskCoordinationComment,
 } from "./GitHubIssueBacklog.js";
@@ -246,6 +247,78 @@ throw new Error("Unsupported gh command: " + normalizedArgs.join(" "));
 };
 
 describe("executeNextGitHubIssueTask", () => {
+  it("reclaims a stale GitHub-backed claim lease before making a fresh claim", async () => {
+    const staleClaimComment = formatTaskCoordinationComment({
+      kind: "sandcastle-task-coordination",
+      version: 1,
+      event: "claim",
+      runId: "run-stale-claim",
+      executionMode: "host",
+      recordedAt: "2026-04-19T00:00:00.000Z",
+      leaseExpiresAt: "2026-04-19T00:30:00.000Z",
+    });
+    const issues: InMemoryIssue[] = [
+      {
+        number: 3,
+        title: "Task with stale claim lease",
+        body: "",
+        state: "OPEN",
+        labels: ["ready-for-agent"],
+        comments: [
+          {
+            body: staleClaimComment,
+            createdAt: "2026-04-19T00:00:00.000Z",
+            author: { login: "sandcastle" },
+          },
+        ],
+        url: "https://example.test/issues/3",
+      },
+      {
+        number: 4,
+        title: "Next ready Task",
+        body: "",
+        state: "OPEN",
+        labels: ["ready-for-agent"],
+        comments: [],
+        url: "https://example.test/issues/4",
+      },
+    ];
+
+    const backlog = new GitHubIssueBacklog({
+      gh: createInMemoryGh({ issues }),
+    });
+    const result = await executeNextGitHubIssueTask({
+      backlog,
+      runId: "run-reclaim",
+      now: () => new Date("2026-04-19T01:00:00.000Z"),
+      executeTask: async ({ selectedTask }: ExecuteGitHubIssueTaskOptions) => ({
+        branch: "main",
+        commits: [{ sha: `commit-${selectedTask.issue.number}` }],
+      }),
+    });
+
+    expect(result.selectedTask?.issue.number).toBe(3);
+    expect(result.closed).toBe(true);
+
+    const reclaimedIssue = issues.find((issue) => issue.number === 3)!;
+    const events = reclaimedIssue.comments
+      .map((comment) => parseTaskCoordinationComment(comment.body))
+      .filter((comment) => comment !== undefined);
+
+    expect(events.map((comment) => comment.event)).toEqual([
+      "claim",
+      "reclaim",
+      "claim",
+      "done",
+    ]);
+    expect(events[1]).toMatchObject({
+      runId: "run-reclaim",
+      reclaimedClaimRunId: "run-stale-claim",
+      reclaimedLeaseExpiresAt: "2026-04-19T00:30:00.000Z",
+    });
+    expect(events[2]?.leaseExpiresAt).toBeDefined();
+  });
+
   it("does not reselect a landed GitHub Issue Task after done is recorded but issue closure fails", async () => {
     const issues: InMemoryIssue[] = [
       {

@@ -20,7 +20,11 @@ export interface GitHubIssueTask {
   readonly parentIssueNumber?: number;
 }
 
-export type TaskCoordinationCommentEvent = "claim" | "release" | "done";
+export type TaskCoordinationCommentEvent =
+  | "claim"
+  | "reclaim"
+  | "release"
+  | "done";
 
 export interface TaskCoordinationComment {
   readonly kind: "sandcastle-task-coordination";
@@ -29,9 +33,18 @@ export interface TaskCoordinationComment {
   readonly runId: string;
   readonly executionMode: "host" | "sandboxed";
   readonly recordedAt: string;
+  readonly leaseExpiresAt?: string;
   readonly branch?: string;
   readonly commits?: string[];
   readonly reason?: string;
+  readonly reclaimedClaimRunId?: string;
+  readonly reclaimedLeaseExpiresAt?: string;
+}
+
+export interface TaskCoordinationClaimState {
+  readonly status: "unclaimed" | "claimed" | "stale";
+  readonly claim?: TaskCoordinationComment;
+  readonly leaseExpiresAt?: string;
 }
 
 export type GitHubCommandRunner = (args: string[]) => Promise<string>;
@@ -66,6 +79,8 @@ const execGh = async (
       },
     );
   });
+
+export const DEFAULT_TASK_CLAIM_LEASE_MS = 4 * 60 * 60 * 1000;
 
 const withRepo = (args: string[], repo?: string): string[] =>
   repo ? [...args, "--repo", repo] : args;
@@ -103,18 +118,22 @@ export const formatTaskCoordinationComment = (
   const headline =
     comment.event === "claim"
       ? "Sandcastle Task Coordination claim"
-      : comment.event === "release"
-        ? "Sandcastle Task Coordination release"
-        : "Sandcastle Task Coordination done";
+      : comment.event === "reclaim"
+        ? "Sandcastle Task Coordination reclaim"
+        : comment.event === "release"
+          ? "Sandcastle Task Coordination release"
+          : "Sandcastle Task Coordination done";
 
   const executionLabel =
     comment.executionMode === "host" ? "host execution" : "sandboxed execution";
   const description =
     comment.event === "claim"
-      ? `This GitHub Issue is the selected Task for the current ${executionLabel}.`
-      : comment.event === "release"
-        ? "This GitHub Issue Task claim has been released."
-        : "This GitHub Issue Task has landed through Task Coordination and is ready for closure.";
+      ? `This GitHub Issue is the selected Task for the current ${executionLabel}. The claim lease expires at ${comment.leaseExpiresAt ?? "an unspecified time"}.`
+      : comment.event === "reclaim"
+        ? `Sandcastle reclaimed a stale GitHub-backed Task claim lease${comment.reclaimedLeaseExpiresAt ? ` that expired at ${comment.reclaimedLeaseExpiresAt}` : ""} so Task Coordination can select the Task again.`
+        : comment.event === "release"
+          ? "This GitHub Issue Task claim has been released."
+          : "This GitHub Issue Task has landed through Task Coordination and is ready for closure.";
 
   return `${headline}\n\n${description}\n\n\`\`\`json\n${JSON.stringify(comment, null, 2)}\n\`\`\``;
 };
@@ -137,12 +156,24 @@ export const parseTaskCoordinationComment = (
       parsed.kind !== "sandcastle-task-coordination" ||
       parsed.version !== 1 ||
       (parsed.event !== "claim" &&
+        parsed.event !== "reclaim" &&
         parsed.event !== "release" &&
         parsed.event !== "done") ||
       (parsed.executionMode !== "host" &&
         parsed.executionMode !== "sandboxed") ||
       typeof parsed.runId !== "string" ||
-      typeof parsed.recordedAt !== "string"
+      typeof parsed.recordedAt !== "string" ||
+      (parsed.leaseExpiresAt !== undefined &&
+        typeof parsed.leaseExpiresAt !== "string") ||
+      (parsed.branch !== undefined && typeof parsed.branch !== "string") ||
+      (parsed.commits !== undefined &&
+        (!Array.isArray(parsed.commits) ||
+          parsed.commits.some((commit) => typeof commit !== "string"))) ||
+      (parsed.reason !== undefined && typeof parsed.reason !== "string") ||
+      (parsed.reclaimedClaimRunId !== undefined &&
+        typeof parsed.reclaimedClaimRunId !== "string") ||
+      (parsed.reclaimedLeaseExpiresAt !== undefined &&
+        typeof parsed.reclaimedLeaseExpiresAt !== "string")
     ) {
       return undefined;
     }
@@ -160,20 +191,103 @@ export const hasRecordedTaskCoordinationDone = (
     (comment) => parseTaskCoordinationComment(comment.body)?.event === "done",
   );
 
-export const hasUnresolvedTaskCoordinationClaim = (
+const getLeaseExpiryTimestamp = (
+  claim: TaskCoordinationComment,
+  createdAt: string | undefined,
+  claimLeaseMs: number,
+): string | undefined => {
+  if (
+    claim.leaseExpiresAt !== undefined &&
+    !Number.isNaN(Date.parse(claim.leaseExpiresAt))
+  ) {
+    return new Date(claim.leaseExpiresAt).toISOString();
+  }
+
+  const recordedAt = !Number.isNaN(Date.parse(claim.recordedAt))
+    ? claim.recordedAt
+    : createdAt;
+  if (!recordedAt || Number.isNaN(Date.parse(recordedAt))) {
+    return undefined;
+  }
+
+  return new Date(Date.parse(recordedAt) + claimLeaseMs).toISOString();
+};
+
+export const getTaskCoordinationClaimState = (
   comments: readonly GitHubIssueComment[],
-): boolean => {
-  let latestEvent: TaskCoordinationCommentEvent | undefined;
+  options: {
+    readonly now?: Date;
+    readonly defaultLeaseMs?: number;
+  } = {},
+): TaskCoordinationClaimState => {
+  const now = options.now ?? new Date();
+  const claimLeaseMs = options.defaultLeaseMs ?? DEFAULT_TASK_CLAIM_LEASE_MS;
+  let activeClaim:
+    | {
+        readonly comment: TaskCoordinationComment;
+        readonly createdAt?: string;
+      }
+    | undefined;
 
   for (const comment of comments) {
     const parsed = parseTaskCoordinationComment(comment.body);
-    if (parsed) {
-      latestEvent = parsed.event;
+    if (!parsed) {
+      continue;
+    }
+
+    if (parsed.event === "claim") {
+      activeClaim = {
+        comment: parsed,
+        createdAt: comment.createdAt,
+      };
+      continue;
+    }
+
+    if (
+      parsed.event === "reclaim" ||
+      parsed.event === "release" ||
+      parsed.event === "done"
+    ) {
+      activeClaim = undefined;
     }
   }
 
-  return latestEvent === "claim";
+  if (!activeClaim) {
+    return { status: "unclaimed" };
+  }
+
+  const leaseExpiresAt = getLeaseExpiryTimestamp(
+    activeClaim.comment,
+    activeClaim.createdAt,
+    claimLeaseMs,
+  );
+  if (
+    leaseExpiresAt &&
+    !Number.isNaN(now.getTime()) &&
+    Date.parse(leaseExpiresAt) <= now.getTime()
+  ) {
+    return {
+      status: "stale",
+      claim: activeClaim.comment,
+      leaseExpiresAt,
+    };
+  }
+
+  return {
+    status: "claimed",
+    claim: activeClaim.comment,
+    leaseExpiresAt,
+  };
 };
+
+export const hasUnresolvedTaskCoordinationClaim = (
+  comments: readonly GitHubIssueComment[],
+  options: {
+    readonly now?: Date;
+    readonly defaultLeaseMs?: number;
+  } = {},
+): boolean =>
+  getTaskCoordinationClaimState(comments, options).status === "claimed";
 
 export class GitHubIssueBacklog {
   readonly #cwd?: string;
@@ -225,7 +339,9 @@ export class GitHubIssueBacklog {
     ) as GitHubIssue;
   }
 
-  async selectNextReadyTask(): Promise<GitHubIssueTask | undefined> {
+  async selectNextReadyTask(
+    asOf: Date = new Date(),
+  ): Promise<GitHubIssueTask | undefined> {
     const readyIssues = await this.listReadyIssues();
     const orderedIssueNumbers = readyIssues
       .map((issue) => issue.number)
@@ -241,7 +357,12 @@ export class GitHubIssueBacklog {
         continue;
       }
 
-      if (hasUnresolvedTaskCoordinationClaim(issue.comments)) {
+      if (
+        hasUnresolvedTaskCoordinationClaim(issue.comments, {
+          now: asOf,
+          defaultLeaseMs: DEFAULT_TASK_CLAIM_LEASE_MS,
+        })
+      ) {
         continue;
       }
 
@@ -268,6 +389,16 @@ export class GitHubIssueBacklog {
   }
 
   async claimTask(
+    issueNumber: number,
+    comment: TaskCoordinationComment,
+  ): Promise<void> {
+    await this.commentOnIssue(
+      issueNumber,
+      formatTaskCoordinationComment(comment),
+    );
+  }
+
+  async reclaimTask(
     issueNumber: number,
     comment: TaskCoordinationComment,
   ): Promise<void> {
