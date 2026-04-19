@@ -18,6 +18,10 @@ import {
 import type { AgentEntry, ScaffoldOptions } from "./InitService.js";
 import { SANDBOX_REPO_DIR } from "./SandboxFactory.js";
 import { SKELETON_PROMPT } from "./templates.js";
+import {
+  GitHubIssueBacklog as exportedGitHubIssueBacklog,
+  executeNextGitHubIssueTask as exportedExecuteNextGitHubIssueTask,
+} from "./index.js";
 
 const makeDir = () => mkdtemp(join(tmpdir(), "init-service-"));
 
@@ -323,6 +327,93 @@ describe("InitService scaffold", () => {
     expect(prompt1).toBe(prompt2);
   });
 
+  describe("github-worker template", () => {
+    it("scaffolds a host-first GitHub worker that uses Task Coordination instead of prompt-driven backlog selection", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, {
+        templateName: "github-worker",
+        agent: piAgent,
+        model: "claude-sonnet-4-6",
+        executionMode: "host",
+      });
+
+      const mainTs = await readFile(
+        join(dir, ".sandcastle", "main.mts"),
+        "utf-8",
+      );
+      const prompt = await readFile(
+        join(dir, ".sandcastle", "implement-prompt.md"),
+        "utf-8",
+      );
+
+      expect(mainTs).toContain('from "@ai-hero/sandcastle"');
+      expect(mainTs).toContain("GitHubIssueBacklog");
+      expect(mainTs).toContain("executeNextGitHubIssueTask");
+      expect(mainTs).toContain("noSandbox()");
+      expect(mainTs).toContain(
+        'promptFile: "./.sandcastle/implement-prompt.md"',
+      );
+      expect(mainTs).toContain('pi("claude-sonnet-4-6")');
+      expect(mainTs).not.toContain("gh issue list");
+
+      expect(prompt).toContain(
+        "Task Coordination already selected the GitHub Issue-backed Task.",
+      );
+      expect(prompt).toContain("Execution mode: host execution");
+      expect(prompt).toContain("Do not choose from the backlog.");
+      expect(prompt).not.toContain("gh issue list");
+      expect(prompt).not.toContain("gh issue close");
+    });
+
+    it("host execution skips Dockerfile and Containerfile scaffolding", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, {
+        templateName: "github-worker",
+        agent: piAgent,
+        model: "claude-sonnet-4-6",
+        executionMode: "host",
+      });
+
+      const { access } = await import("node:fs/promises");
+      await expect(
+        access(join(dir, ".sandcastle", "Dockerfile")),
+      ).rejects.toThrow();
+      await expect(
+        access(join(dir, ".sandcastle", "Containerfile")),
+      ).rejects.toThrow();
+    });
+
+    it("still rewrites the default host-first GitHub worker to another swappable agent provider", async () => {
+      const dir = await makeDir();
+      await runScaffold(dir, {
+        templateName: "github-worker",
+        agent: codexAgent,
+        model: "gpt-5.4-mini",
+        executionMode: "host",
+      });
+
+      const mainTs = await readFile(
+        join(dir, ".sandcastle", "main.mts"),
+        "utf-8",
+      );
+      expect(mainTs).toContain('codex("gpt-5.4-mini")');
+      expect(mainTs).not.toContain("claudeCode");
+      expect(mainTs).not.toContain('pi("claude-sonnet-4-6")');
+    });
+
+    it("exports the GitHub worker coordination primitives for scaffolded projects", () => {
+      expect(exportedGitHubIssueBacklog).toBeTypeOf("function");
+      expect(exportedExecuteNextGitHubIssueTask).toBeTypeOf("function");
+    });
+
+    it("appears in listTemplates()", () => {
+      const templates = listTemplates();
+      expect(
+        templates.some((template) => template.name === "github-worker"),
+      ).toBe(true);
+    });
+  });
+
   // --- main file rewriting ---
 
   it("scaffolds main.mts with the specified model", async () => {
@@ -535,6 +626,16 @@ describe("InitService scaffold", () => {
   });
 
   describe("getNextStepsLines", () => {
+    it("github-worker template returns host-first GitHub worker guidance", () => {
+      const lines = getNextStepsLines("github-worker", "main.mts");
+      const joined = lines.join("\n");
+      expect(joined).toContain("implement-prompt.md");
+      expect(joined).toContain("ready-for-agent");
+      expect(joined).toContain("host-first GitHub worker");
+      expect(joined).not.toContain("copyToWorktree");
+      expect(joined).not.toContain("onSandboxReady");
+    });
+
     it("blank template returns steps mentioning .env and main filename (not npx sandcastle run)", () => {
       const lines = getNextStepsLines("blank", "main.mts");
       expect(lines.length).toBeGreaterThanOrEqual(2);

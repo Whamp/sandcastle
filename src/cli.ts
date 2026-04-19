@@ -20,7 +20,6 @@ import {
   getAgent,
   listBacklogManagers,
   getBacklogManager,
-  listSandboxProviders,
   getSandboxProvider,
   getNextStepsLines,
 } from "./InitService.js";
@@ -31,6 +30,16 @@ import type {
   SandboxProviderEntry,
 } from "./InitService.js";
 import { ConfigDirError, InitError } from "./errors.js";
+import {
+  DEFAULT_INIT_AGENT_NAME,
+  DEFAULT_INIT_EXECUTION_MODE,
+  DEFAULT_INIT_TEMPLATE_NAME,
+  getInitExecutionMode,
+  initExecutionModeRequiresImageBuild,
+  listInitExecutionModes,
+  templateSupportsInitExecutionMode,
+  templateUsesSandcastleLabelPrompt,
+} from "./initDefaults.js";
 
 const require = createRequire(import.meta.url);
 const VERSION = (require("../package.json") as { version: string }).version;
@@ -72,13 +81,13 @@ const requireConfigDir = (
 
 const templateOption = Options.text("template").pipe(
   Options.withDescription(
-    "Template to scaffold (e.g. blank, simple-loop, parallel-planner)",
+    "Template to scaffold (e.g. github-worker, blank, simple-loop)",
   ),
   Options.optional,
 );
 
 const agentOption = Options.text("agent").pipe(
-  Options.withDescription("Agent to use (e.g. claude-code)"),
+  Options.withDescription("Agent to use (e.g. pi)"),
   Options.optional,
 );
 
@@ -140,7 +149,7 @@ const initCommand = Command.make(
         const selected = yield* Effect.promise(() =>
           clack.select({
             message: "Select an agent:",
-            initialValue: "claude-code",
+            initialValue: DEFAULT_INIT_AGENT_NAME,
             options: agents.map((a) => ({
               value: a.name,
               label: a.label,
@@ -162,28 +171,72 @@ const initCommand = Command.make(
           ? modelFlag.value
           : selectedAgent.defaultModel;
 
-      // Resolve sandbox provider: interactive select (no default — user must choose)
-      const sandboxProviders = listSandboxProviders();
-      let selectedSandboxProvider: SandboxProviderEntry;
-      {
+      // Resolve template: CLI flag > interactive select (already validated above)
+      let selectedTemplate: string;
+      if (template._tag === "Some") {
+        selectedTemplate = template.value;
+      } else {
         const selected = yield* Effect.promise(() =>
           clack.select({
-            message: "Select a sandbox provider:",
-            options: sandboxProviders.map((p) => ({
-              value: p.name,
-              label: p.label,
+            message: "Select a template:",
+            initialValue: DEFAULT_INIT_TEMPLATE_NAME,
+            options: templates.map((tmpl) => ({
+              value: tmpl.name,
+              label: tmpl.name,
+              hint: tmpl.description,
             })),
           }),
         );
         if (clack.isCancel(selected)) {
           yield* Effect.fail(
-            new InitError({
-              message: "Sandbox provider selection cancelled.",
-            }),
+            new InitError({ message: "Template selection cancelled." }),
           );
         }
-        selectedSandboxProvider = getSandboxProvider(selected as string)!;
+        selectedTemplate = selected as string;
       }
+
+      // Resolve execution mode for init scaffolding.
+      const initExecutionModes = listInitExecutionModes();
+      const selectedExecutionModeName = yield* Effect.promise(() =>
+        clack.select({
+          message: "Select an execution mode:",
+          initialValue: DEFAULT_INIT_EXECUTION_MODE,
+          options: initExecutionModes.map((mode) => ({
+            value: mode.name,
+            label: mode.label,
+            hint: mode.hint,
+          })),
+        }),
+      );
+      if (clack.isCancel(selectedExecutionModeName)) {
+        yield* Effect.fail(
+          new InitError({ message: "Execution mode selection cancelled." }),
+        );
+      }
+      const selectedExecutionMode = getInitExecutionMode(
+        selectedExecutionModeName as string,
+      )!;
+
+      if (
+        !templateSupportsInitExecutionMode(
+          selectedTemplate,
+          selectedExecutionMode.name,
+        )
+      ) {
+        yield* Effect.fail(
+          new InitError({
+            message:
+              selectedTemplate === DEFAULT_INIT_TEMPLATE_NAME
+                ? `The ${DEFAULT_INIT_TEMPLATE_NAME} template currently supports host execution only. Choose host execution or select a sandbox-oriented template.`
+                : `The ${selectedTemplate} template currently expects Docker or Podman sandboxed execution. Choose Docker/Podman or switch to ${DEFAULT_INIT_TEMPLATE_NAME}.`,
+          }),
+        );
+      }
+
+      const selectedSandboxProvider =
+        selectedExecutionMode.name === "host"
+          ? undefined
+          : getSandboxProvider(selectedExecutionMode.name);
 
       // Resolve backlog manager: interactive select
       const backlogManagers = listBacklogManagers();
@@ -209,33 +262,12 @@ const initCommand = Command.make(
         selectedBacklogManager = getBacklogManager(selected as string)!;
       }
 
-      // Resolve template: CLI flag > interactive select (already validated above)
-      let selectedTemplate: string;
-      if (template._tag === "Some") {
-        selectedTemplate = template.value;
-      } else {
-        const selected = yield* Effect.promise(() =>
-          clack.select({
-            message: "Select a template:",
-            initialValue: "blank",
-            options: templates.map((tmpl) => ({
-              value: tmpl.name,
-              label: tmpl.name,
-              hint: tmpl.description,
-            })),
-          }),
-        );
-        if (clack.isCancel(selected)) {
-          yield* Effect.fail(
-            new InitError({ message: "Template selection cancelled." }),
-          );
-        }
-        selectedTemplate = selected as string;
-      }
-
-      // Offer to create the "Sandcastle" label on the repo (skip for non-GitHub backlog managers)
+      // Offer to create the "Sandcastle" label on prompt-driven GitHub templates only.
       let shouldCreateLabel: boolean | symbol = false;
-      if (selectedBacklogManager.name === "github-issues") {
+      if (
+        selectedBacklogManager.name === "github-issues" &&
+        templateUsesSandcastleLabelPrompt(selectedTemplate)
+      ) {
         shouldCreateLabel = yield* Effect.promise(() =>
           clack.confirm({
             message:
@@ -265,6 +297,7 @@ const initCommand = Command.make(
           createLabel: shouldCreateLabel === true,
           backlogManager: selectedBacklogManager,
           sandboxProvider: selectedSandboxProvider,
+          executionMode: selectedExecutionMode.name,
         }).pipe(
           Effect.mapError(
             (e) =>
@@ -275,32 +308,44 @@ const initCommand = Command.make(
         ),
       );
 
-      // Prompt user before building image
-      const providerLabel = selectedSandboxProvider.label;
-      const shouldBuild = yield* Effect.promise(() =>
-        clack.confirm({
-          message: `Build the default ${providerLabel} image now?`,
-          initialValue: true,
-        }),
-      );
+      if (
+        initExecutionModeRequiresImageBuild(selectedExecutionMode.name) &&
+        selectedSandboxProvider
+      ) {
+        const providerLabel = selectedSandboxProvider.label;
+        const shouldBuild = yield* Effect.promise(() =>
+          clack.confirm({
+            message: `Build the default ${providerLabel} image now?`,
+            initialValue: true,
+          }),
+        );
 
-      if (shouldBuild === true) {
-        const containerfileDir = join(cwd, CONFIG_DIR);
-        if (selectedSandboxProvider.name === "podman") {
-          yield* d.spinner(
-            `Building ${providerLabel} image '${imageName}'...`,
-            podmanBuildImage(imageName, containerfileDir),
+        if (shouldBuild === true) {
+          const containerfileDir = join(cwd, CONFIG_DIR);
+          if (selectedSandboxProvider.name === "podman") {
+            yield* d.spinner(
+              `Building ${providerLabel} image '${imageName}'...`,
+              podmanBuildImage(imageName, containerfileDir),
+            );
+          } else {
+            yield* d.spinner(
+              `Building ${providerLabel} image '${imageName}'...`,
+              buildImage(imageName, containerfileDir),
+            );
+          }
+          yield* d.status(
+            "Init complete! Image built successfully.",
+            "success",
           );
         } else {
-          yield* d.spinner(
-            `Building ${providerLabel} image '${imageName}'...`,
-            buildImage(imageName, containerfileDir),
+          yield* d.status(
+            `Init complete! Run \`sandcastle ${selectedSandboxProvider.cliNamespace} build-image\` to build the ${providerLabel} image later.`,
+            "success",
           );
         }
-        yield* d.status("Init complete! Image built successfully.", "success");
       } else {
         yield* d.status(
-          `Init complete! Run \`sandcastle ${selectedSandboxProvider.cliNamespace} build-image\` to build the ${providerLabel} image later.`,
+          "Init complete! Host execution was scaffolded without a container image.",
           "success",
         );
       }
