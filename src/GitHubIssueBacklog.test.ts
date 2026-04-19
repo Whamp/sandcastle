@@ -14,6 +14,7 @@ interface FakeIssue {
   readonly title: string;
   readonly body: string;
   readonly state: "OPEN" | "CLOSED";
+  readonly labels?: readonly string[];
   readonly comments: Array<{
     readonly body: string;
     readonly createdAt?: string;
@@ -33,6 +34,9 @@ const createFakeGh = (issues: FakeIssue[]) => {
       return JSON.stringify(
         issues
           .filter((issue) => issue.state === "OPEN")
+          .filter((issue) =>
+            (issue.labels ?? ["ready-for-agent"]).includes("ready-for-agent"),
+          )
           .map((issue) => ({ number: issue.number, title: issue.title })),
       );
     }
@@ -373,7 +377,53 @@ describe("GitHubIssueBacklog.selectNextReadyTask", () => {
     });
   });
 
-  it("skips needs-attention tasks without reusing dependency-blocked semantics", async () => {
+  it("skips Tasks currently labeled needs-attention without reusing dependency-blocked semantics", async () => {
+    const backlog = new GitHubIssueBacklog({
+      gh: createFakeGh([
+        {
+          number: 2,
+          title: "Execution failure that needs attention",
+          body: "",
+          state: "OPEN",
+          labels: ["ready-for-agent", "needs-attention"],
+          comments: [],
+        },
+        {
+          number: 3,
+          title: "Dependency-blocked implementation issue",
+          body: "## Blocked by\n\n- Blocked by #99\n",
+          state: "OPEN",
+          labels: ["ready-for-agent"],
+          comments: [],
+        },
+        {
+          number: 4,
+          title: "Next ready implementation issue",
+          body: "",
+          state: "OPEN",
+          labels: ["ready-for-agent"],
+          comments: [],
+        },
+        {
+          number: 99,
+          title: "Open dependency issue",
+          body: "",
+          state: "OPEN",
+          labels: [],
+          comments: [],
+        },
+      ]),
+    });
+
+    const selectedTask = await backlog.selectNextReadyTask();
+
+    expect(selectedTask).toMatchObject({
+      issue: { number: 4, title: "Next ready implementation issue" },
+      dependencies: [],
+    });
+  });
+
+  it("reselects a GitHub-backed Task after a human restores ready-for-agent", async () => {
     const needsAttentionComment = formatTaskCoordinationComment({
       kind: "sandcastle-task-coordination",
       version: 1,
@@ -388,9 +438,10 @@ describe("GitHubIssueBacklog.selectNextReadyTask", () => {
       gh: createFakeGh([
         {
           number: 2,
-          title: "Execution failure that needs attention",
+          title: "Task ready again after human intervention",
           body: "",
           state: "OPEN",
+          labels: ["ready-for-agent"],
           comments: [
             {
               body: needsAttentionComment,
@@ -401,23 +452,10 @@ describe("GitHubIssueBacklog.selectNextReadyTask", () => {
         },
         {
           number: 3,
-          title: "Dependency-blocked implementation issue",
-          body: "## Blocked by\n\n- Blocked by #99\n",
-          state: "OPEN",
-          comments: [],
-        },
-        {
-          number: 4,
-          title: "Next ready implementation issue",
+          title: "Later ready implementation issue",
           body: "",
           state: "OPEN",
-          comments: [],
-        },
-        {
-          number: 99,
-          title: "Open dependency issue",
-          body: "",
-          state: "OPEN",
+          labels: ["ready-for-agent"],
           comments: [],
         },
       ]),
@@ -426,7 +464,7 @@ describe("GitHubIssueBacklog.selectNextReadyTask", () => {
     const selectedTask = await backlog.selectNextReadyTask();
 
     expect(selectedTask).toMatchObject({
-      issue: { number: 4, title: "Next ready implementation issue" },
+      issue: { number: 2, title: "Task ready again after human intervention" },
       dependencies: [],
     });
   });

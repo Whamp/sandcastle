@@ -12,6 +12,7 @@ export interface GitHubIssue {
   readonly body: string;
   readonly state: "OPEN" | "CLOSED";
   readonly comments: GitHubIssueComment[];
+  readonly labels?: readonly string[];
   readonly url?: string;
 }
 
@@ -93,6 +94,11 @@ const execGh = async (
   });
 
 export const DEFAULT_TASK_CLAIM_LEASE_MS = 4 * 60 * 60 * 1000;
+export const READY_FOR_AGENT_LABEL = "ready-for-agent";
+export const NEEDS_ATTENTION_LABEL = "needs-attention";
+const NEEDS_ATTENTION_LABEL_COLOR = "D93F0B";
+const NEEDS_ATTENTION_LABEL_DESCRIPTION =
+  "Tasks that require human attention before returning to the ready queue";
 
 const withRepo = (args: string[], repo?: string): string[] =>
   repo ? [...args, "--repo", repo] : args;
@@ -188,7 +194,7 @@ export const formatTaskCoordinationComment = (
         : comment.event === "release"
           ? "This GitHub Issue Task claim has been released."
           : comment.event === "needs-attention"
-            ? `This GitHub-backed Task needs attention rather than dependency-blocked treatment because ${executionLabel} failed in a way that requires intervention beyond ordinary retry.${comment.reason ? ` Reason: ${comment.reason}` : ""}`
+            ? `This GitHub-backed Task has moved from ${READY_FOR_AGENT_LABEL} to ${NEEDS_ATTENTION_LABEL} rather than dependency-blocked treatment because ${executionLabel} failed in a way that requires intervention beyond ordinary retry.${comment.reason ? ` Reason: ${comment.reason}` : ""}`
             : "This GitHub Issue Task has landed through Task Coordination and is ready for closure.";
 
   return `${headline}\n\n${description}\n\n\`\`\`json\n${JSON.stringify(comment, null, 2)}\n\`\`\``;
@@ -256,6 +262,11 @@ export const hasRecordedTaskCoordinationDone = (
 export const hasRecordedTaskCoordinationNeedsAttention = (
   comments: readonly GitHubIssueComment[],
 ): boolean => hasRecordedTaskCoordinationEvent(comments, "needs-attention");
+
+const hasIssueLabel = (
+  issue: Pick<GitHubIssue, "labels">,
+  label: string,
+): boolean => issue.labels?.includes(label) ?? false;
 
 const getLeaseExpiryTimestamp = (
   claim: TaskCoordinationComment,
@@ -385,7 +396,7 @@ export class GitHubIssueBacklog {
         "--state",
         "open",
         "--label",
-        "ready-for-agent",
+        READY_FOR_AGENT_LABEL,
         "--limit",
         "100",
         "--json",
@@ -401,7 +412,9 @@ export class GitHubIssueBacklog {
         "view",
         String(number),
         "--json",
-        "number,title,body,state,comments,url",
+        "number,title,body,state,comments,url,labels",
+        "--jq",
+        "{number: .number, title: .title, body: .body, state: .state, comments: .comments, url: .url, labels: [.labels[].name]}",
       ]),
     ) as GitHubIssue;
   }
@@ -424,7 +437,7 @@ export class GitHubIssueBacklog {
         continue;
       }
 
-      if (hasRecordedTaskCoordinationNeedsAttention(issue.comments)) {
+      if (hasIssueLabel(issue, NEEDS_ATTENTION_LABEL)) {
         continue;
       }
 
@@ -494,6 +507,11 @@ export class GitHubIssueBacklog {
     issueNumber: number,
     comment: TaskCoordinationComment,
   ): Promise<void> {
+    await this.ensureNeedsAttentionLabel();
+    await this.editIssueLabels(issueNumber, {
+      add: [NEEDS_ATTENTION_LABEL],
+      remove: [READY_FOR_AGENT_LABEL],
+    });
     await this.commentOnIssue(
       issueNumber,
       formatTaskCoordinationComment(comment),
@@ -512,6 +530,39 @@ export class GitHubIssueBacklog {
 
   async closeTask(issueNumber: number): Promise<void> {
     await this.#gh(["issue", "close", String(issueNumber)]);
+  }
+
+  private async ensureNeedsAttentionLabel(): Promise<void> {
+    await this.#gh([
+      "label",
+      "create",
+      NEEDS_ATTENTION_LABEL,
+      "--color",
+      NEEDS_ATTENTION_LABEL_COLOR,
+      "--description",
+      NEEDS_ATTENTION_LABEL_DESCRIPTION,
+      "--force",
+    ]);
+  }
+
+  private async editIssueLabels(
+    issueNumber: number,
+    options: {
+      readonly add?: readonly string[];
+      readonly remove?: readonly string[];
+    },
+  ): Promise<void> {
+    const args = ["issue", "edit", String(issueNumber)];
+
+    for (const label of options.add ?? []) {
+      args.push("--add-label", label);
+    }
+
+    for (const label of options.remove ?? []) {
+      args.push("--remove-label", label);
+    }
+
+    await this.#gh(args);
   }
 
   private async commentOnIssue(
