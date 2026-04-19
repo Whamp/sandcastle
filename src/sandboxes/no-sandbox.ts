@@ -3,9 +3,9 @@
  *
  * Usage:
  *   import { noSandbox } from "sandcastle/sandboxes/no-sandbox";
- *   await interactive({ agent: claudeCode("claude-opus-4-6"), sandbox: noSandbox() });
+ *   await run({ agent: claudeCode("claude-opus-4-6"), sandbox: noSandbox(), prompt: "..." });
  *
- * Only valid for `interactive()` — not accepted by `run()` or `createSandbox()`.
+ * Supports `run()`, `createSandbox()`, and `interactive()`.
  * Does not pass `--dangerously-skip-permissions` to the agent — the user manages
  * permissions themselves.
  */
@@ -28,8 +28,9 @@ export interface NoSandboxOptions {
  * Create a no-sandbox provider.
  *
  * The returned provider runs the agent directly on the host. All three
- * branch strategies are supported (head, merge-to-head, branch),
- * defaulting to head.
+ * branch strategies are supported (head, merge-to-head, branch).
+ * Top-level non-interactive runs default to merge-to-head; interactive
+ * sessions default to head unless you override them.
  */
 export const noSandbox = (options?: NoSandboxOptions): NoSandboxProvider => ({
   tag: "none",

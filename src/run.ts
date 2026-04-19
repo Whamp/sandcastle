@@ -241,12 +241,14 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
     agent: provider,
   } = options;
 
-  // Derive branch strategy: explicit option > default based on provider tag
+  // Derive branch strategy: explicit option > default based on execution mode.
+  // Host execution and isolated sandboxes default to worktree-based merge-to-head
+  // safety. Bind-mount sandboxes keep their existing head-mode default.
   const branchStrategy: BranchStrategy =
     options.branchStrategy ??
-    (options.sandbox.tag === "isolated"
-      ? { type: "merge-to-head" }
-      : { type: "head" });
+    (options.sandbox.tag === "bind-mount"
+      ? { type: "head" }
+      : { type: "merge-to-head" });
   const effectiveBranchType = branchStrategy.type;
 
   // Validate: head strategy is not supported with isolated providers

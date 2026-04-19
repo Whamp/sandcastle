@@ -108,7 +108,7 @@ export interface WorktreeInteractiveOptions {
 export interface WorktreeRunOptions {
   /** Agent provider to use (e.g. claudeCode("claude-opus-4-6")) */
   readonly agent: AgentProvider;
-  /** Sandbox provider (e.g. docker()). Required — AFK agents should always be sandboxed. */
+  /** Execution provider (e.g. docker() or noSandbox()). */
   readonly sandbox: SandboxProvider;
   /** Inline prompt string (mutually exclusive with promptFile). */
   readonly prompt?: string;
@@ -502,10 +502,21 @@ export const createWorktree = async (
       );
 
       // 4. Start sandbox
-      let handle: BindMountSandboxHandle | IsolatedSandboxHandle;
+      let handle:
+        | BindMountSandboxHandle
+        | IsolatedSandboxHandle
+        | NoSandboxHandle;
       let sandboxRepoDir: string;
 
-      if (sandboxProvider.tag === "isolated") {
+      if (sandboxProvider.tag === "none") {
+        handle = yield* Effect.promise(() =>
+          sandboxProvider.create({
+            worktreePath: worktreeInfo.path,
+            env: effectiveEnv,
+          }),
+        );
+        sandboxRepoDir = handle.worktreePath;
+      } else if (sandboxProvider.tag === "isolated") {
         const startResult = yield* startSandbox({
           provider: sandboxProvider,
           hostRepoDir: worktreeInfo.path,

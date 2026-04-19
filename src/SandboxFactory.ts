@@ -295,7 +295,7 @@ export const resolveGitMounts = (
 /** Shared acquire result type for the worktree-mode acquireUseRelease. */
 interface AcquireResult {
   worktreeInfo: WorktreeManager.WorktreeInfo;
-  handle: BindMountSandboxHandle | IsolatedSandboxHandle;
+  handle: BindMountSandboxHandle | IsolatedSandboxHandle | NoSandboxHandle;
   sandboxLayer: Layer.Layer<Sandbox>;
   worktreePath: string;
 }
@@ -416,6 +416,115 @@ export const WorktreeDockerSandboxFactory = {
             );
           }
 
+          if (sandboxProvider.tag === "none") {
+            const hostProvider = sandboxProvider;
+
+            const startHostExecution = (worktreePath: string) =>
+              Effect.tryPromise({
+                try: () =>
+                  hostProvider.create({
+                    worktreePath,
+                    env,
+                  }),
+                catch: (e) =>
+                  new WorktreeError({
+                    message: `Host execution provider '${hostProvider.name}' create failed: ${e instanceof Error ? e.message : String(e)}`,
+                  }),
+              }).pipe(
+                Effect.map((handle) => ({
+                  handle,
+                  sandboxLayer: makeSandboxLayerFromHandle(handle),
+                  worktreePath: handle.worktreePath,
+                })),
+              );
+
+            if (isHeadMode) {
+              return Effect.acquireUseRelease(
+                startHostExecution(hostRepoDir),
+                ({ sandboxLayer, worktreePath }) =>
+                  makeEffect({
+                    hostWorktreePath: hostRepoDir,
+                    sandboxRepoPath: worktreePath,
+                    applyToHost: () => Effect.void,
+                  }).pipe(Effect.provide(sandboxLayer)) as Effect.Effect<
+                    A,
+                    E | SandboxError,
+                    Exclude<R, Sandbox>
+                  >,
+                ({ handle }) =>
+                  Effect.tryPromise({
+                    try: () => handle.close(),
+                    catch: () => undefined,
+                  }).pipe(Effect.orDie),
+              ).pipe(
+                Effect.map((value) => ({
+                  value,
+                  preservedWorktreePath: undefined,
+                })),
+              );
+            }
+
+            let preservedWorktreePath: string | undefined;
+
+            return Effect.acquireUseRelease(
+              pruneAndCreate().pipe(
+                Effect.flatMap((worktreeInfo) =>
+                  (copyPaths && copyPaths.length > 0
+                    ? display.spinner(
+                        "Copying to worktree",
+                        copyToWorktree(
+                          copyPaths,
+                          hostRepoDir,
+                          worktreeInfo.path,
+                        ),
+                      )
+                    : Effect.succeed(undefined)
+                  ).pipe(Effect.map(() => worktreeInfo)),
+                ),
+                Effect.flatMap((worktreeInfo) =>
+                  startHostExecution(worktreeInfo.path).pipe(
+                    Effect.map(({ handle, sandboxLayer, worktreePath }) => ({
+                      worktreeInfo,
+                      handle,
+                      sandboxLayer,
+                      worktreePath,
+                    })),
+                  ),
+                ),
+              ),
+              ({ worktreeInfo, sandboxLayer, worktreePath }) =>
+                makeEffect({
+                  hostWorktreePath: worktreeInfo.path,
+                  sandboxRepoPath: worktreePath,
+                  applyToHost: () => Effect.void,
+                }).pipe(Effect.provide(sandboxLayer)) as Effect.Effect<
+                  A,
+                  E | SandboxError,
+                  Exclude<R, Sandbox>
+                >,
+              ({ worktreeInfo, handle }, exit) =>
+                Effect.tryPromise({
+                  try: () => handle.close(),
+                  catch: () => undefined,
+                }).pipe(
+                  Effect.andThen(cleanupWorktree(worktreeInfo.path, exit)),
+                  Effect.tap((p) => {
+                    preservedWorktreePath = p;
+                  }),
+                  Effect.asVoid,
+                  Effect.orDie,
+                ),
+            ).pipe(
+              Effect.map((value) => ({
+                value,
+                preservedWorktreePath,
+              })),
+              Effect.mapError((e: E | SandboxError) =>
+                attachPreservedPath(preservedWorktreePath, e),
+              ),
+            );
+          }
+
           if (isHeadMode) {
             // Head mode: bind-mount host directory directly, no worktree
             const gitPath = join(hostRepoDir, ".git");
@@ -450,7 +559,7 @@ export const WorktreeDockerSandboxFactory = {
               Effect.flatMap((gitMounts) =>
                 Effect.acquireUseRelease(
                   startSandbox({
-                    provider: sandboxProvider,
+                    provider: sandboxProvider as BindMountSandboxProvider,
                     hostRepoDir,
                     env,
                     worktreeOrRepoPath: hostRepoDir,
@@ -484,7 +593,7 @@ export const WorktreeDockerSandboxFactory = {
             );
           }
 
-          // Worktree mode (merge-to-head or explicit branch)
+          // Bind-mount worktree mode (merge-to-head or explicit branch)
           // Populated by the release phase when a worktree is preserved on failure,
           // so we can attach the path to recognized error types before they propagate.
           let preservedWorktreePath: string | undefined;
@@ -539,8 +648,6 @@ export const WorktreeDockerSandboxFactory = {
                     (
                       gitMounts,
                     ): Effect.Effect<AcquireResult, SandboxError, never> =>
-                      // sandboxProvider is guaranteed bind-mount here
-                      // (isolated providers return early above)
                       startSandbox({
                         provider: sandboxProvider as BindMountSandboxProvider,
                         hostRepoDir,

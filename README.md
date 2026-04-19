@@ -8,10 +8,10 @@
 
 ## What Is Sandcastle?
 
-A TypeScript library for orchestrating AI coding agents in isolated sandboxes:
+A TypeScript library for orchestrating AI coding agents in host-first or sandboxed execution modes:
 
 1. You invoke agents with a single `sandcastle.run()`.
-2. Sandcastle handles sandboxing the agent with a configurable branch strategy.
+2. Sandcastle handles host or sandboxed execution with a configurable branch strategy.
 3. The commits made on the branches get merged back.
 
 Sandcastle is provider-agnostic — it ships with built-in providers for Docker, Podman, and Vercel, and you can create your own. Great for parallelizing multiple AFK agents, creating review pipelines, or even just orchestrating your own agents.
@@ -19,7 +19,7 @@ Sandcastle is provider-agnostic — it ships with built-in providers for Docker,
 ## Prerequisites
 
 - [Git](https://git-scm.com/)
-- A sandbox provider — Sandcastle needs an isolated environment to run agents in. Built-in options:
+- An execution provider. Sandcastle can run agents directly on the host or in an isolated sandbox. Built-in sandboxed options:
   - [Docker Desktop](https://www.docker.com/) — most common for local development
   - [Podman](https://podman.io/) — rootless alternative to Docker
   - [Vercel](https://vercel.com/) — cloud-based Firecracker microVMs via `@vercel/sandbox`
@@ -65,14 +65,14 @@ await run({
 
 ## Sandbox Providers
 
-Sandcastle uses a `SandboxProvider` to create isolated environments. The `sandbox` option on `run()` and `createSandbox()` accepts any provider. A no-sandbox option is also available for `interactive()` and `wt.interactive()`. Built-in providers:
+Sandcastle uses a `SandboxProvider` to select an execution mode. The `sandbox` option on `run()` and `createSandbox()` accepts any provider, including host execution via `noSandbox()`. Built-in providers:
 
-| Provider   | Import path                                | Type       | Accepted by                                   |
-| ---------- | ------------------------------------------ | ---------- | --------------------------------------------- |
-| Docker     | `@ai-hero/sandcastle/sandboxes/docker`     | Bind-mount | `run()`, `createSandbox()`, `interactive()`   |
-| Podman     | `@ai-hero/sandcastle/sandboxes/podman`     | Bind-mount | `run()`, `createSandbox()`, `interactive()`   |
-| Vercel     | `@ai-hero/sandcastle/sandboxes/vercel`     | Isolated   | `run()`, `createSandbox()`, `interactive()`   |
-| No-sandbox | `@ai-hero/sandcastle/sandboxes/no-sandbox` | None       | `interactive()`, `wt.interactive()` (default) |
+| Provider   | Import path                                | Type       | Accepted by                                 |
+| ---------- | ------------------------------------------ | ---------- | ------------------------------------------- |
+| Docker     | `@ai-hero/sandcastle/sandboxes/docker`     | Bind-mount | `run()`, `createSandbox()`, `interactive()` |
+| Podman     | `@ai-hero/sandcastle/sandboxes/podman`     | Bind-mount | `run()`, `createSandbox()`, `interactive()` |
+| Vercel     | `@ai-hero/sandcastle/sandboxes/vercel`     | Isolated   | `run()`, `createSandbox()`, `interactive()` |
+| No-sandbox | `@ai-hero/sandcastle/sandboxes/no-sandbox` | None       | `run()`, `createSandbox()`, `interactive()` |
 
 Worktree methods (`wt.run()`, `wt.interactive()`, `wt.createSandbox()`) accept the same providers as their top-level counterparts. `wt.interactive()` defaults to `noSandbox()` when no sandbox is specified.
 
@@ -89,11 +89,12 @@ await run({
   prompt: "...",
 });
 
-// No-sandbox runs the agent directly on the host — interactive() only:
-await interactive({
+// No-sandbox runs the agent directly on the host.
+// For non-interactive runs it defaults to merge-to-head worktree safety.
+await run({
   agent: claudeCode("claude-opus-4-6"),
   sandbox: noSandbox(),
-  prompt: "...", // optional — omit to launch the TUI with no initial prompt
+  prompt: "...",
   cwd: "/path/to/other-repo", // optional — defaults to process.cwd()
 });
 ```
@@ -154,7 +155,8 @@ const result = await run({
   cwd: "../other-repo",
 
   // Branch strategy — controls how the agent's changes relate to branches.
-  // Defaults to { type: "head" } for bind-mount and { type: "merge-to-head" } for isolated providers.
+  // Defaults to { type: "head" } for bind-mount providers and { type: "merge-to-head" }
+  // for isolated and host-execution providers.
   branchStrategy: { type: "branch", branch: "agent/fix-42" },
 
   // Prompt source — provide one of these, not both.

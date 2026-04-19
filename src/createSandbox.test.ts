@@ -6,13 +6,14 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
-import { claudeCode, pi } from "./AgentProvider.js";
+import { claudeCode, pi, type AgentProvider } from "./AgentProvider.js";
 import { createSandbox, type CreateSandboxOptions } from "./createSandbox.js";
 import { Sandbox } from "./SandboxFactory.js";
 import {
   createBindMountSandboxProvider,
   createIsolatedSandboxProvider,
 } from "./SandboxProvider.js";
+import { noSandbox } from "./sandboxes/no-sandbox.js";
 import { testIsolated } from "./sandboxes/test-isolated.js";
 import { makeLocalSandboxLayer } from "./testSandbox.js";
 
@@ -62,6 +63,29 @@ const toStreamJson = (output: string): string => {
 
 const testProvider = claudeCode("test-model");
 const testPiProvider = pi("test-model");
+
+const shellEscape = (s: string): string => "'" + s.replace(/'/g, "'\\''") + "'";
+
+const makeHostExecutionAgent = (options?: {
+  readonly filename?: string;
+  readonly commitMessage?: string;
+}): AgentProvider => {
+  const filename = options?.filename ?? "host-first-output.txt";
+  const commitMessage = options?.commitMessage ?? "host-first commit";
+
+  return {
+    name: "host-execution-test-agent",
+    env: {},
+    buildPrintCommand: () =>
+      [
+        `echo 'host-first output' > ${shellEscape(filename)}`,
+        `git add ${shellEscape(filename)}`,
+        `git commit -m ${shellEscape(commitMessage)}`,
+        `printf '%s\\n' ${shellEscape(toStreamJson("<promise>COMPLETE</promise>"))}`,
+      ].join(" && "),
+    parseStreamLine: testProvider.parseStreamLine,
+  };
+};
 
 /** Format a mock pi agent result as stream-json lines */
 const toPiStreamJson = (output: string): string => {
@@ -765,6 +789,52 @@ describe("createSandbox", () => {
     } finally {
       await sandbox.close();
       await rm(hostDir, { recursive: true, force: true });
+    }
+  });
+
+  it("supports host execution providers for non-interactive runs", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "sandbox-test-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "init.txt", "init", "initial commit");
+
+    const gitTmpDir = mkdtempSync(join(tmpdir(), "test-gitconfig-"));
+    const globalConfigPath = join(gitTmpDir, ".gitconfig");
+    writeFileSync(globalConfigPath, "");
+
+    const sandbox = await createSandbox({
+      branch: "host-first-sandbox",
+      sandbox: noSandbox({ env: { GIT_CONFIG_GLOBAL: globalConfigPath } }),
+      _test: { hostRepoDir: hostDir },
+    });
+
+    try {
+      const result = await sandbox.run({
+        agent: makeHostExecutionAgent({
+          filename: "from-host-sandbox.txt",
+          commitMessage: "host sandbox commit",
+        }),
+        prompt: "host-first run",
+        maxIterations: 1,
+      });
+
+      expect(result.iterationsRun).toBe(1);
+      expect(result.commits).toHaveLength(1);
+      expect(
+        await readFile(
+          join(sandbox.worktreePath, "from-host-sandbox.txt"),
+          "utf-8",
+        ),
+      ).toContain("host-first output");
+
+      const { stdout: log } = await execAsync(
+        "git log --oneline host-first-sandbox",
+        { cwd: hostDir },
+      );
+      expect(log).toContain("host sandbox commit");
+    } finally {
+      await sandbox.close();
+      await rm(hostDir, { recursive: true, force: true });
+      await rm(gitTmpDir, { recursive: true, force: true });
     }
   });
 
