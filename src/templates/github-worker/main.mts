@@ -30,6 +30,10 @@ if (!result.selectedTask) {
   console.log(
     `Closed GitHub Issue #${result.selectedTask.issue.number} after land on ${result.runResult?.branch}.`,
   );
+} else if (result.blockingPrerequisiteTask) {
+  console.log(
+    `GitHub Issue #${result.selectedTask.issue.number} is now blocked by prerequisite #${result.blockingPrerequisiteTask.issue.number}; the claim was released.`,
+  );
 } else {
   console.log(
     `GitHub Issue #${result.selectedTask.issue.number} finished without a landed change; the claim was released.`,

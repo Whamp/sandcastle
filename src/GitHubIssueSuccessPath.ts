@@ -3,6 +3,7 @@ import {
   DEFAULT_TASK_CLAIM_LEASE_MS,
   getTaskCoordinationClaimState,
   type GitHubIssue,
+  type GitHubIssueBlockingPrerequisite,
   type GitHubIssueProposedFollowOn,
   type GitHubIssueTask,
   type TaskCoordinationComment,
@@ -27,6 +28,10 @@ export interface GitHubIssueSuccessPathBacklog {
     readonly currentTask: GitHubIssueTask;
     readonly followOn: GitHubIssueProposedFollowOn;
   }): Promise<GitHubIssueTask>;
+  createBlockingPrerequisiteTask(options: {
+    readonly currentTask: GitHubIssueTask;
+    readonly prerequisite: GitHubIssueBlockingPrerequisite;
+  }): Promise<GitHubIssueTask>;
   markTaskNeedsAttention(
     issueNumber: number,
     comment: TaskCoordinationComment,
@@ -43,6 +48,7 @@ export interface GitHubIssueTaskRunResult {
   readonly commits: ReadonlyArray<{ readonly sha: string }>;
   readonly stdout?: string;
   readonly proposedFollowOn?: GitHubIssueProposedFollowOn;
+  readonly blockedByPrerequisite?: GitHubIssueBlockingPrerequisite;
 }
 
 export interface ExecuteGitHubIssueTaskOptions {
@@ -64,6 +70,7 @@ export interface GitHubIssueSuccessPathResult {
   readonly parentIssue?: GitHubIssue;
   readonly proposedFollowOnTask?: GitHubIssueTask;
   readonly proposedFollowOnError?: string;
+  readonly blockingPrerequisiteTask?: GitHubIssueTask;
   readonly runId?: string;
   readonly executionMode: "host";
   readonly runResult?: GitHubIssueTaskRunResult;
@@ -120,9 +127,20 @@ const hasConcreteProposedFollowOn = (
   proposedFollowOn.title.trim().length > 0 &&
   proposedFollowOn.body.trim().length > 0;
 
-const parseTaskCoordinationProposedFollowOnResult = (
+const hasConcreteBlockingPrerequisite = (
+  blockedByPrerequisite: GitHubIssueBlockingPrerequisite,
+): boolean =>
+  blockedByPrerequisite.title.trim().length > 0 &&
+  blockedByPrerequisite.body.trim().length > 0;
+
+const parseTaskCoordinationResultPayload = (
   stdout: string | undefined,
-): GitHubIssueProposedFollowOn | undefined => {
+):
+  | Partial<{
+      proposedFollowOn: GitHubIssueProposedFollowOn;
+      blockedByPrerequisite: GitHubIssueBlockingPrerequisite;
+    }>
+  | undefined => {
   if (!stdout) {
     return undefined;
   }
@@ -142,49 +160,75 @@ const parseTaskCoordinationProposedFollowOnResult = (
   }
 
   try {
-    const parsed = JSON.parse(payload) as Partial<{
+    return JSON.parse(payload) as Partial<{
       proposedFollowOn: GitHubIssueProposedFollowOn;
+      blockedByPrerequisite: GitHubIssueBlockingPrerequisite;
     }>;
-
-    if (
-      typeof parsed.proposedFollowOn?.title !== "string" ||
-      typeof parsed.proposedFollowOn?.body !== "string"
-    ) {
-      return undefined;
-    }
-
-    return {
-      title: parsed.proposedFollowOn.title.trim(),
-      body: parsed.proposedFollowOn.body.trim(),
-    };
   } catch {
     return undefined;
   }
 };
 
+const parseTaskCoordinationProposedFollowOnResult = (
+  stdout: string | undefined,
+): GitHubIssueProposedFollowOn | undefined => {
+  const parsed = parseTaskCoordinationResultPayload(stdout);
+
+  if (
+    typeof parsed?.proposedFollowOn?.title !== "string" ||
+    typeof parsed.proposedFollowOn?.body !== "string"
+  ) {
+    return undefined;
+  }
+
+  return {
+    title: parsed.proposedFollowOn.title.trim(),
+    body: parsed.proposedFollowOn.body.trim(),
+  };
+};
+
+const parseTaskCoordinationBlockedByPrerequisiteResult = (
+  stdout: string | undefined,
+): GitHubIssueBlockingPrerequisite | undefined => {
+  const parsed = parseTaskCoordinationResultPayload(stdout);
+
+  if (
+    typeof parsed?.blockedByPrerequisite?.title !== "string" ||
+    typeof parsed.blockedByPrerequisite?.body !== "string"
+  ) {
+    return undefined;
+  }
+
+  return {
+    title: parsed.blockedByPrerequisite.title.trim(),
+    body: parsed.blockedByPrerequisite.body.trim(),
+  };
+};
+
 const normalizeGitHubIssueTaskRunResult = (
   runResult: GitHubIssueTaskRunResult,
 ): GitHubIssueTaskRunResult => {
-  if (runResult.proposedFollowOn) {
-    return {
-      ...runResult,
-      proposedFollowOn: {
+  const proposedFollowOn = runResult.proposedFollowOn
+    ? {
         title: runResult.proposedFollowOn.title.trim(),
         body: runResult.proposedFollowOn.body.trim(),
-      },
-    };
-  }
+      }
+    : parseTaskCoordinationProposedFollowOnResult(runResult.stdout);
+  const blockedByPrerequisite = runResult.blockedByPrerequisite
+    ? {
+        title: runResult.blockedByPrerequisite.title.trim(),
+        body: runResult.blockedByPrerequisite.body.trim(),
+      }
+    : parseTaskCoordinationBlockedByPrerequisiteResult(runResult.stdout);
 
-  const proposedFollowOn = parseTaskCoordinationProposedFollowOnResult(
-    runResult.stdout,
-  );
-  if (!proposedFollowOn) {
+  if (!proposedFollowOn && !blockedByPrerequisite) {
     return runResult;
   }
 
   return {
     ...runResult,
     proposedFollowOn,
+    blockedByPrerequisite,
   };
 };
 
@@ -289,6 +333,43 @@ export const executeNextGitHubIssueTask = async (
       }),
     );
     throw error;
+  }
+
+  if (
+    runResult.commits.length === 0 &&
+    runResult.blockedByPrerequisite &&
+    hasConcreteBlockingPrerequisite(runResult.blockedByPrerequisite)
+  ) {
+    const blockingPrerequisiteTask =
+      await options.backlog.createBlockingPrerequisiteTask({
+        currentTask: selectedTask,
+        prerequisite: {
+          title: runResult.blockedByPrerequisite.title.trim(),
+          body: runResult.blockedByPrerequisite.body.trim(),
+        },
+      });
+
+    await options.backlog.releaseTask(
+      selectedTask.issue.number,
+      createComment({
+        event: "release",
+        runId,
+        executionMode,
+        now: now(),
+        branch: runResult.branch,
+        reason: `Discovered blocking prerequisite #${blockingPrerequisiteTask.issue.number}.`,
+      }),
+    );
+
+    return {
+      selectedTask,
+      parentIssue,
+      blockingPrerequisiteTask,
+      runId,
+      executionMode,
+      runResult,
+      closed: false,
+    };
   }
 
   const { proposedFollowOnTask, proposedFollowOnError } =

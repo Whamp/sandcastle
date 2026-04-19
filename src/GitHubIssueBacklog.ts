@@ -38,9 +38,19 @@ export interface GitHubIssueProposedFollowOn {
   readonly body: string;
 }
 
+export interface GitHubIssueBlockingPrerequisite {
+  readonly title: string;
+  readonly body: string;
+}
+
 export interface CreateProposedFollowOnTaskOptions {
   readonly currentTask: GitHubIssueTask;
   readonly followOn: GitHubIssueProposedFollowOn;
+}
+
+export interface CreateBlockingPrerequisiteTaskOptions {
+  readonly currentTask: GitHubIssueTask;
+  readonly prerequisite: GitHubIssueBlockingPrerequisite;
 }
 
 export type TaskCoordinationCommentEvent =
@@ -157,6 +167,33 @@ const upsertSection = (
   return `${trimmedBody}\n\n${formattedSection}`;
 };
 
+const appendSectionListItem = (
+  body: string,
+  heading: string,
+  item: string,
+): string => {
+  const normalizedItem = item.trim();
+  const existingSection = parseSection(body, heading);
+
+  if (!existingSection) {
+    return upsertSection(body, heading, normalizedItem);
+  }
+
+  const existingLines = existingSection
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (existingLines.includes(normalizedItem)) {
+    return body.trim();
+  }
+
+  return upsertSection(
+    body,
+    heading,
+    `${existingSection.trim()}\n${normalizedItem}`,
+  );
+};
+
 const parseIssueReferences = (text?: string): number[] => {
   if (!text) return [];
 
@@ -198,6 +235,27 @@ const buildProposedFollowOnIssueBody = (
       ? `#${options.currentTask.parentIssueNumber}`
       : undefined);
   let body = options.followOn.body.trim();
+
+  if (parentSection) {
+    body = upsertSection(body, "Parent", parentSection);
+  }
+
+  return upsertSection(
+    body,
+    "Follow-on from",
+    `- Follow-on from #${options.currentTask.issue.number}`,
+  );
+};
+
+const buildBlockingPrerequisiteIssueBody = (
+  options: CreateBlockingPrerequisiteTaskOptions,
+): string => {
+  const parentSection =
+    parseSection(options.currentTask.issue.body, "Parent") ??
+    (options.currentTask.parentIssueNumber
+      ? `#${options.currentTask.parentIssueNumber}`
+      : undefined);
+  let body = options.prerequisite.body.trim();
 
   if (parentSection) {
     body = upsertSection(body, "Parent", parentSection);
@@ -536,11 +594,12 @@ export class GitHubIssueBacklog {
       const task = mapGitHubIssueToTask(issue);
       const dependencyStates = new Map<number, GitHubIssue["state"]>(
         await Promise.all(
-          task.dependencies.map(async (dependency) =>
-            [
-              dependency.issueNumber,
-              (await this.getIssue(dependency.issueNumber)).state,
-            ] as const,
+          task.dependencies.map(
+            async (dependency) =>
+              [
+                dependency.issueNumber,
+                (await this.getIssue(dependency.issueNumber)).state,
+              ] as const,
           ),
         ),
       );
@@ -563,6 +622,28 @@ export class GitHubIssueBacklog {
       title: options.followOn.title.trim(),
       body: buildProposedFollowOnIssueBody(options),
     });
+
+    return mapGitHubIssueToTask(createdIssue);
+  }
+
+  async createBlockingPrerequisiteTask(
+    options: CreateBlockingPrerequisiteTaskOptions,
+  ): Promise<GitHubIssueTask> {
+    const createdIssue = await this.createIssue({
+      title: options.prerequisite.title.trim(),
+      body: buildBlockingPrerequisiteIssueBody(options),
+      labels: [READY_FOR_AGENT_LABEL],
+    });
+    const currentIssue = await this.getIssue(options.currentTask.issue.number);
+    const nextCurrentBody = appendSectionListItem(
+      currentIssue.body,
+      "Blocked by",
+      `- Blocked by #${createdIssue.number}`,
+    );
+
+    if (nextCurrentBody !== currentIssue.body.trim()) {
+      await this.editIssueBody(currentIssue.number, nextCurrentBody);
+    }
 
     return mapGitHubIssueToTask(createdIssue);
   }
@@ -659,6 +740,13 @@ export class GitHubIssueBacklog {
       NEEDS_ATTENTION_LABEL_DESCRIPTION,
       "--force",
     ]);
+  }
+
+  private async editIssueBody(
+    issueNumber: number,
+    body: string,
+  ): Promise<void> {
+    await this.#gh(["issue", "edit", String(issueNumber), "--body", body]);
   }
 
   private async editIssueLabels(
