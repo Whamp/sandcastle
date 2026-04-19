@@ -15,9 +15,20 @@ export interface GitHubIssue {
   readonly url?: string;
 }
 
+export interface GitHubIssueTaskDependency {
+  readonly issueNumber: number;
+  readonly relationship: "blocked-by";
+}
+
 export interface GitHubIssueTask {
   readonly issue: GitHubIssue;
   readonly parentIssueNumber?: number;
+  readonly dependencies: readonly GitHubIssueTaskDependency[];
+}
+
+export interface GitHubIssueTaskReadiness {
+  readonly status: "ready" | "blocked";
+  readonly unresolvedDependencies: readonly GitHubIssueTaskDependency[];
 }
 
 export type TaskCoordinationCommentEvent =
@@ -108,6 +119,31 @@ export const parseParentIssueNumber = (body: string): number | undefined =>
 
 export const parseBlockedByIssueNumbers = (body: string): number[] =>
   parseIssueReferences(parseSection(body, "Blocked by"));
+
+export const mapGitHubIssueToTask = (issue: GitHubIssue): GitHubIssueTask => ({
+  issue,
+  parentIssueNumber: parseParentIssueNumber(issue.body),
+  dependencies: Array.from(new Set(parseBlockedByIssueNumbers(issue.body))).map(
+    (issueNumber) => ({
+      issueNumber,
+      relationship: "blocked-by" as const,
+    }),
+  ),
+});
+
+export const getGitHubIssueTaskReadiness = (
+  task: Pick<GitHubIssueTask, "dependencies">,
+  dependencyStates: ReadonlyMap<number, GitHubIssue["state"]>,
+): GitHubIssueTaskReadiness => {
+  const unresolvedDependencies = task.dependencies.filter(
+    (dependency) => dependencyStates.get(dependency.issueNumber) !== "CLOSED",
+  );
+
+  return {
+    status: unresolvedDependencies.length > 0 ? "blocked" : "ready",
+    unresolvedDependencies,
+  };
+};
 
 export const isPrdIssue = (issue: Pick<GitHubIssue, "title">): boolean =>
   issue.title.trim().toLowerCase().startsWith("prd:");
@@ -366,23 +402,24 @@ export class GitHubIssueBacklog {
         continue;
       }
 
-      const blockerNumbers = parseBlockedByIssueNumbers(issue.body);
-      if (blockerNumbers.length > 0) {
-        const blockerStates = await Promise.all(
-          blockerNumbers.map(
-            async (blockerNumber) => (await this.getIssue(blockerNumber)).state,
+      const task = mapGitHubIssueToTask(issue);
+      const dependencyStates = new Map<number, GitHubIssue["state"]>(
+        await Promise.all(
+          task.dependencies.map(async (dependency) =>
+            [
+              dependency.issueNumber,
+              (await this.getIssue(dependency.issueNumber)).state,
+            ] as const,
           ),
-        );
+        ),
+      );
+      const readiness = getGitHubIssueTaskReadiness(task, dependencyStates);
 
-        if (blockerStates.includes("OPEN")) {
-          continue;
-        }
+      if (readiness.status === "blocked") {
+        continue;
       }
 
-      return {
-        issue,
-        parentIssueNumber: parseParentIssueNumber(issue.body),
-      };
+      return task;
     }
 
     return undefined;

@@ -319,6 +319,45 @@ describe("executeNextGitHubIssueTask", () => {
     expect(events[2]?.leaseExpiresAt).toBeDefined();
   });
 
+  it("records release for a non-landed execution instead of treating it as dependency-blocked", async () => {
+    const issues: InMemoryIssue[] = [
+      {
+        number: 3,
+        title: "Task without a landed change",
+        body: "",
+        state: "OPEN",
+        labels: ["ready-for-agent"],
+        comments: [],
+        url: "https://example.test/issues/3",
+      },
+    ];
+
+    const backlog = new GitHubIssueBacklog({
+      gh: createInMemoryGh({ issues }),
+    });
+    const result = await executeNextGitHubIssueTask({
+      backlog,
+      runId: "run-release",
+      now: () => new Date("2026-04-19T00:00:00.000Z"),
+      executeTask: async () => ({
+        branch: "main",
+        commits: [],
+      }),
+    });
+
+    expect(result.selectedTask?.issue.number).toBe(3);
+    expect(result.closed).toBe(false);
+
+    const releaseIssue = issues.find((issue) => issue.number === 3)!;
+    expect(releaseIssue.state).toBe("OPEN");
+    expect(
+      releaseIssue.comments
+        .map((comment) => parseTaskCoordinationComment(comment.body))
+        .filter((comment) => comment !== undefined)
+        .map((comment) => comment.event),
+    ).toEqual(["claim", "release"]);
+  });
+
   it("does not reselect a landed GitHub Issue Task after done is recorded but issue closure fails", async () => {
     const issues: InMemoryIssue[] = [
       {
