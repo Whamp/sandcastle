@@ -152,11 +152,11 @@ describe("GitHubIssueBacklog task coordination comments", () => {
 });
 
 describe("GitHubIssueBacklog.selectNextReadyTask", () => {
-  it("maps Blocked by references into explicit GitHub-backed Task dependencies", () => {
+  it("maps only explicit Blocked by entries into GitHub-backed Task dependencies", () => {
     const task = mapGitHubIssueToTask({
       number: 7,
       title: "Task with explicit dependencies",
-      body: "## Parent\n\n#1\n\n## Blocked by\n\n- Blocked by #3\n- Blocked by #5\n- Related note mentioning #5 again\n",
+      body: "## Parent\n\n#1\n\n## Blocked by\n\n- Blocked by #3\n- #5\n- Parent PRD is #1 for context only\n- Related note mentioning #5 again should not add a blocker\n",
       state: "OPEN",
       comments: [],
     });
@@ -328,6 +328,42 @@ describe("GitHubIssueBacklog.selectNextReadyTask", () => {
 
     expect(selectedTask).toMatchObject({
       issue: { number: 3 },
+      dependencies: [],
+    });
+  });
+
+  it("does not treat incidental issue references inside Blocked by prose as dependency blockers", async () => {
+    const backlog = new GitHubIssueBacklog({
+      gh: createFakeGh([
+        {
+          number: 1,
+          title: "PRD: host-first Task Coordination core for GitHub Issues",
+          body: "",
+          state: "OPEN",
+          comments: [],
+        },
+        {
+          number: 2,
+          title: "Earlier task with incidental PRD reference",
+          body: "## Parent\n\n#1\n\n## Blocked by\n\nParent PRD is #1 for context while implementation continues.\n",
+          state: "OPEN",
+          comments: [],
+        },
+        {
+          number: 3,
+          title: "Later ready implementation issue",
+          body: "",
+          state: "OPEN",
+          comments: [],
+        },
+      ]),
+    });
+
+    const selectedTask = await backlog.selectNextReadyTask();
+
+    expect(selectedTask).toMatchObject({
+      issue: { number: 2, title: "Earlier task with incidental PRD reference" },
+      parentIssueNumber: 1,
       dependencies: [],
     });
   });

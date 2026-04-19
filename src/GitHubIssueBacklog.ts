@@ -114,11 +114,26 @@ const parseIssueReferences = (text?: string): number[] => {
   return Array.from(text.matchAll(/#(\d+)/g), (match) => Number(match[1]));
 };
 
+const parseExplicitBlockedByIssueReferences = (text?: string): number[] => {
+  if (!text) return [];
+
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .flatMap((line) => {
+      const match = line.match(
+        /^(?:[-*+]\s+|\d+\.\s+)?(?:blocked by\s+)?#(\d+)\s*$/i,
+      );
+
+      return match ? [Number(match[1])] : [];
+    });
+};
+
 export const parseParentIssueNumber = (body: string): number | undefined =>
   parseIssueReferences(parseSection(body, "Parent"))[0];
 
 export const parseBlockedByIssueNumbers = (body: string): number[] =>
-  parseIssueReferences(parseSection(body, "Blocked by"));
+  parseExplicitBlockedByIssueReferences(parseSection(body, "Blocked by"));
 
 export const mapGitHubIssueToTask = (issue: GitHubIssue): GitHubIssueTask => ({
   issue,
