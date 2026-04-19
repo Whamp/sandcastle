@@ -28,6 +28,7 @@ const invokeAgent = (
   sandboxRepoDir: string,
   prompt: string,
   provider: AgentProvider,
+  dangerouslySkipPermissions: boolean,
   idleTimeoutMs: number,
   onText: (text: string) => void,
   onToolCall: (name: string, formattedArgs: string) => void,
@@ -96,7 +97,7 @@ const invokeAgent = (
     const execEffect = Effect.gen(function* () {
       const printCmd = provider.buildPrintCommand({
         prompt,
-        dangerouslySkipPermissions: true,
+        dangerouslySkipPermissions,
         resumeSession,
       });
       const execResult = yield* sandbox.exec(printCmd.command, {
@@ -170,6 +171,8 @@ export interface OrchestrateOptions {
   readonly branch?: string;
   readonly provider: AgentProvider;
   readonly completionSignal?: string | string[];
+  /** Whether the agent provider should skip its own permission prompts. Defaults to true; no-sandbox host execution passes false. */
+  readonly dangerouslySkipPermissions?: boolean;
   /** Idle timeout in seconds. If the agent produces no output for this long, it fails with AgentIdleTimeoutError. Default: 600 (10 minutes) */
   readonly idleTimeoutSeconds?: number;
   /** Optional name for the run, prepended to status messages as [name] */
@@ -315,6 +318,7 @@ export const orchestrate = (
                   ctx.sandboxRepoDir,
                   fullPrompt,
                   provider,
+                  options.dangerouslySkipPermissions ?? true,
                   idleTimeoutMs,
                   onText,
                   onToolCall,

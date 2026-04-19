@@ -1,4 +1,5 @@
-import { readFileSync, mkdtempSync } from "node:fs";
+import { execSync } from "node:child_process";
+import { readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
@@ -13,8 +14,9 @@ import {
   type RunOptions,
   type RunResult,
 } from "./run.js";
-import { claudeCode } from "./AgentProvider.js";
+import { claudeCode, type AgentProvider } from "./AgentProvider.js";
 import { defaultImageName } from "./sandboxes/docker.js";
+import { noSandbox } from "./sandboxes/no-sandbox.js";
 import * as sandcastle from "./SandboxProvider.js";
 import { createBindMountSandboxProvider } from "./SandboxProvider.js";
 
@@ -692,5 +694,139 @@ describe("run() error logging to file", () => {
         logging: { type: "file", path: logPath },
       }),
     ).rejects.toThrow("SOURCE_BRANCH");
+  });
+});
+
+const shellEscape = (s: string): string => "'" + s.replace(/'/g, "'\\''") + "'";
+
+const makeHostFirstAgent = (options?: {
+  readonly onBuildPrintCommand?: (
+    buildOptions: Parameters<AgentProvider["buildPrintCommand"]>[0],
+  ) => void;
+}): AgentProvider => {
+  const baseProvider = claudeCode("test-model");
+  const assistantLine = JSON.stringify({
+    type: "assistant",
+    message: { content: [{ type: "text", text: "working" }] },
+  });
+  const resultLine = JSON.stringify({
+    type: "result",
+    result: "<promise>COMPLETE</promise>",
+  });
+
+  return {
+    name: "host-first-test-agent",
+    env: {},
+    buildPrintCommand: (buildOptions) => {
+      options?.onBuildPrintCommand?.(buildOptions);
+      return [
+        `printf '%s\\n' ${shellEscape(assistantLine)}`,
+        `echo 'host-first output' > ${shellEscape("host-first-output.txt")}`,
+        `git add ${shellEscape("host-first-output.txt")}`,
+        `git commit -m ${shellEscape("host-first commit")}`,
+        `printf '%s\\n' ${shellEscape(resultLine)}`,
+      ].join(" && ");
+    },
+    parseStreamLine: baseProvider.parseStreamLine,
+  };
+};
+
+describe("run() host-first execution", () => {
+  it("supports non-interactive host execution with merge-to-head worktree safety by default", async () => {
+    const originalCwd = process.cwd();
+    const hostDir = mkdtempSync(join(tmpdir(), "sandcastle-run-host-"));
+    const gitConfigDir = mkdtempSync(join(tmpdir(), "sandcastle-run-gitcfg-"));
+    const globalConfigPath = join(gitConfigDir, ".gitconfig");
+    writeFileSync(globalConfigPath, "");
+
+    execSync("git init -b main", { cwd: hostDir, stdio: "ignore" });
+    execSync('git config user.email "test@test.com"', {
+      cwd: hostDir,
+      stdio: "ignore",
+    });
+    execSync('git config user.name "Test"', {
+      cwd: hostDir,
+      stdio: "ignore",
+    });
+    writeFileSync(join(hostDir, "README.md"), "# Test\n");
+    execSync("git add README.md", { cwd: hostDir, stdio: "ignore" });
+    execSync('git commit -m "initial"', { cwd: hostDir, stdio: "ignore" });
+
+    process.chdir(hostDir);
+
+    const baseProvider = noSandbox({
+      env: { GIT_CONFIG_GLOBAL: globalConfigPath },
+    });
+    const createCalls: Array<{
+      worktreePath: string;
+      env: Record<string, string>;
+    }> = [];
+    const hostExecution = {
+      ...baseProvider,
+      create: async (options: {
+        readonly worktreePath: string;
+        readonly env: Record<string, string>;
+      }) => {
+        createCalls.push(options);
+        return baseProvider.create(options);
+      },
+    };
+
+    const buildPrintCommandCalls: Array<
+      Parameters<AgentProvider["buildPrintCommand"]>[0]
+    > = [];
+
+    try {
+      const result = await run({
+        agent: makeHostFirstAgent({
+          onBuildPrintCommand: (buildOptions) => {
+            buildPrintCommandCalls.push(buildOptions);
+          },
+        }),
+        sandbox: hostExecution,
+        prompt: "host-first run",
+        logging: { type: "file", path: join(hostDir, "host-first.log") },
+      });
+
+      expect(result.iterationsRun).toBe(1);
+      expect(result.completionSignal).toBe("<promise>COMPLETE</promise>");
+      expect(result.branch).toBe("main");
+      expect(result.commits).toHaveLength(1);
+      expect(
+        readFileSync(join(hostDir, "host-first-output.txt"), "utf-8"),
+      ).toContain("host-first output");
+
+      expect(createCalls).toHaveLength(1);
+      expect(createCalls[0]!.worktreePath).toContain(
+        join(".sandcastle", "worktrees"),
+      );
+      expect(createCalls[0]!.worktreePath).not.toBe(hostDir);
+
+      expect(buildPrintCommandCalls).toHaveLength(1);
+      expect(buildPrintCommandCalls[0]!.dangerouslySkipPermissions).toBe(false);
+
+      expect(
+        execSync("git branch --show-current", {
+          cwd: hostDir,
+          encoding: "utf-8",
+        }).trim(),
+      ).toBe("main");
+      expect(
+        execSync("git log --oneline --decorate", {
+          cwd: hostDir,
+          encoding: "utf-8",
+        }),
+      ).toContain("host-first commit");
+      expect(
+        execSync("git worktree list --porcelain", {
+          cwd: hostDir,
+          encoding: "utf-8",
+        }),
+      ).not.toContain(".sandcastle/worktrees");
+    } finally {
+      process.chdir(originalCwd);
+      rmSync(hostDir, { recursive: true, force: true });
+      rmSync(gitConfigDir, { recursive: true, force: true });
+    }
   });
 });

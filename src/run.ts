@@ -192,7 +192,7 @@ export interface RunOptions {
   /** Paths relative to the host repo root to copy into the worktree before sandbox start. */
   readonly copyToWorktree?: string[];
   /** Branch strategy — controls how the agent's changes relate to branches.
-   * Defaults to { type: "head" } for bind-mount providers and { type: "merge-to-head" } for isolated providers. */
+   * Defaults to { type: "head" } for bind-mount providers and { type: "merge-to-head" } for host execution and isolated providers. */
   readonly branchStrategy?: BranchStrategy;
   /** Resume a prior Claude Code session by ID. The session JSONL must exist on the host. Incompatible with maxIterations > 1. */
   readonly resumeSession?: string;
@@ -241,12 +241,14 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
     agent: provider,
   } = options;
 
-  // Derive branch strategy: explicit option > default based on provider tag
+  // Derive branch strategy: explicit option > default based on execution mode.
+  // Host execution and isolated sandboxes default to worktree-based merge-to-head
+  // safety. Bind-mount sandboxes keep their existing head-mode default.
   const branchStrategy: BranchStrategy =
     options.branchStrategy ??
-    (options.sandbox.tag === "isolated"
-      ? { type: "merge-to-head" }
-      : { type: "head" });
+    (options.sandbox.tag === "bind-mount"
+      ? { type: "head" }
+      : { type: "merge-to-head" });
   const effectiveBranchType = branchStrategy.type;
 
   // Validate: head strategy is not supported with isolated providers
@@ -426,6 +428,7 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
       branch: orchestrateBranch,
       provider,
       completionSignal: options.completionSignal,
+      dangerouslySkipPermissions: options.sandbox.tag !== "none",
       idleTimeoutSeconds: options.idleTimeoutSeconds,
       name: options.name,
       resumeSession: options.resumeSession,

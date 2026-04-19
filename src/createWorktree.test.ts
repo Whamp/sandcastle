@@ -1,5 +1,5 @@
 import { exec, execSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -12,7 +12,7 @@ import type {
   WorktreeInteractiveOptions,
   WorktreeCreateSandboxOptions,
 } from "./createWorktree.js";
-import { claudeCode } from "./AgentProvider.js";
+import { claudeCode, type AgentProvider } from "./AgentProvider.js";
 import {
   createBindMountSandboxProvider,
   type BindMountSandboxHandle,
@@ -20,6 +20,7 @@ import {
   type ExecResult,
   type SandboxProvider,
 } from "./SandboxProvider.js";
+import { noSandbox } from "./sandboxes/no-sandbox.js";
 import { makeLocalSandboxLayer } from "./testSandbox.js";
 
 const execAsync = promisify(exec);
@@ -560,6 +561,31 @@ const toStreamJson = (output: string): string => {
   return lines.join("\n");
 };
 
+const shellEscape = (s: string): string => "'" + s.replace(/'/g, "'\\''") + "'";
+
+const makeHostFirstRunAgent = (options?: {
+  readonly onBuildPrintCommand?: (
+    buildOptions: Parameters<AgentProvider["buildPrintCommand"]>[0],
+  ) => void;
+}): AgentProvider => {
+  const baseProvider = claudeCode("test-model");
+
+  return {
+    name: "host-first-worktree-agent",
+    env: {},
+    buildPrintCommand: (buildOptions) => {
+      options?.onBuildPrintCommand?.(buildOptions);
+      return [
+        `echo 'host-first output' > ${shellEscape("host-first-worktree-output.txt")}`,
+        `git add ${shellEscape("host-first-worktree-output.txt")}`,
+        `git commit -m ${shellEscape("host-first worktree commit")}`,
+        `printf '%s\\n' ${shellEscape(toStreamJson("<promise>COMPLETE</promise>"))}`,
+      ].join(" && ");
+    },
+    parseStreamLine: baseProvider.parseStreamLine,
+  };
+};
+
 describe("worktree.run()", () => {
   /**
    * Create a test bind-mount provider that intercepts agent commands
@@ -710,6 +736,51 @@ describe("worktree.run()", () => {
     } finally {
       await ws.close();
       await rm(hostDir, { recursive: true, force: true });
+    }
+  });
+
+  it("omits dangerous permission skipping for host execution providers", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "ws-run-host-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "init.txt", "init", "initial commit");
+
+    const gitTmpDir = mkdtempSync(join(tmpdir(), "ws-run-gitcfg-"));
+    const globalConfigPath = join(gitTmpDir, ".gitconfig");
+    writeFileSync(globalConfigPath, "");
+
+    const ws = await createWorktree({
+      branchStrategy: { type: "branch", branch: "host-first-worktree" },
+      _test: { hostRepoDir: hostDir },
+    });
+    const buildPrintCommandCalls: Array<
+      Parameters<AgentProvider["buildPrintCommand"]>[0]
+    > = [];
+
+    try {
+      const result = await ws.run({
+        agent: makeHostFirstRunAgent({
+          onBuildPrintCommand: (buildOptions) => {
+            buildPrintCommandCalls.push(buildOptions);
+          },
+        }),
+        sandbox: noSandbox({ env: { GIT_CONFIG_GLOBAL: globalConfigPath } }),
+        prompt: "host-first run",
+        maxIterations: 1,
+      });
+
+      expect(result.iterationsRun).toBe(1);
+      expect(buildPrintCommandCalls).toHaveLength(1);
+      expect(buildPrintCommandCalls[0]!.dangerouslySkipPermissions).toBe(false);
+      expect(
+        execSync("git log --oneline -1", {
+          cwd: ws.worktreePath,
+          encoding: "utf-8",
+        }),
+      ).toContain("host-first worktree commit");
+    } finally {
+      await ws.close();
+      await rm(hostDir, { recursive: true, force: true });
+      await rm(gitTmpDir, { recursive: true, force: true });
     }
   });
 
