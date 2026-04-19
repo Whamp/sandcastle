@@ -361,6 +361,8 @@ describe("InitService scaffold", () => {
       );
       expect(prompt).toContain("Execution mode: host execution");
       expect(prompt).toContain("Do not choose from the backlog.");
+      expect(prompt).toContain('"blockedByPrerequisite"');
+      expect(prompt).toContain("blocking prerequisite Task");
       expect(prompt).not.toContain("gh issue list");
       expect(prompt).not.toContain("gh issue close");
     });

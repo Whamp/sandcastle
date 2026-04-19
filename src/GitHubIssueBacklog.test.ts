@@ -12,7 +12,7 @@ import {
 interface FakeIssue {
   readonly number: number;
   readonly title: string;
-  readonly body: string;
+  body: string;
   state: "OPEN" | "CLOSED";
   labels?: string[];
   readonly comments: Array<{
@@ -80,6 +80,30 @@ const createFakeGh = (issues: FakeIssue[]) => {
       issues.push(issue);
       issuesByNumber.set(number, issue);
       return `https://example.test/issues/${number}\n`;
+    }
+
+    if (args[1] === "edit") {
+      const issue = issuesByNumber.get(Number(args[2]));
+      if (!issue) {
+        throw new Error(`Unknown issue #${args[2]}`);
+      }
+
+      for (let index = 3; index < args.length; index += 2) {
+        const flag = args[index];
+        const value = args[index + 1];
+        if (value === undefined) {
+          throw new Error(`Unsupported gh args: ${args.join(" ")}`);
+        }
+
+        if (flag === "--body") {
+          issue.body = value;
+          continue;
+        }
+
+        throw new Error(`Unsupported gh args: ${args.join(" ")}`);
+      }
+
+      return "";
     }
 
     throw new Error(`Unsupported gh args: ${args.join(" ")}`);
@@ -267,9 +291,7 @@ describe("GitHubIssueBacklog.selectNextReadyTask", () => {
       ),
     ).toEqual({
       status: "blocked",
-      unresolvedDependencies: [
-        { issueNumber: 5, relationship: "blocked-by" },
-      ],
+      unresolvedDependencies: [{ issueNumber: 5, relationship: "blocked-by" }],
     });
     expect(
       getGitHubIssueTaskReadiness(
@@ -283,6 +305,63 @@ describe("GitHubIssueBacklog.selectNextReadyTask", () => {
       status: "ready",
       unresolvedDependencies: [],
     });
+  });
+
+  it("creates a blocking prerequisite issue with lineage, updates Blocked by metadata, and restores readiness after the prerequisite closes", async () => {
+    const issues: FakeIssue[] = [
+      {
+        number: 1,
+        title: "PRD: host-first Task Coordination core for GitHub Issues",
+        body: "",
+        state: "OPEN",
+        labels: [],
+        comments: [],
+      },
+      {
+        number: 7,
+        title: "Current Task that discovered prerequisite work",
+        body: "## Parent\n\n#1\n\n## What to build\n\nLand the current Task after prerequisite work is ready.\n",
+        state: "OPEN",
+        labels: ["ready-for-agent"],
+        comments: [],
+      },
+    ];
+
+    const backlog = new GitHubIssueBacklog({
+      gh: createFakeGh(issues),
+    });
+    const currentTask = mapGitHubIssueToTask(issues[1]!);
+
+    const blockingPrerequisiteTask =
+      await backlog.createBlockingPrerequisiteTask({
+        currentTask,
+        prerequisite: {
+          title: "Add the GitHub Issue body patch helper first",
+          body: "## What to build\n\nCreate the issue body patch helper that the current Task now depends on.\n",
+        },
+      });
+
+    expect(blockingPrerequisiteTask).toMatchObject({
+      issue: {
+        number: 8,
+        title: "Add the GitHub Issue body patch helper first",
+        state: "OPEN",
+        labels: ["ready-for-agent"],
+      },
+      parentIssueNumber: 1,
+      followOnFromIssueNumber: 7,
+      dependencies: [],
+    });
+    expect(blockingPrerequisiteTask.issue.body).toContain("## Parent\n\n#1");
+    expect(blockingPrerequisiteTask.issue.body).toContain(
+      "## Follow-on from\n\n- Follow-on from #7",
+    );
+    expect(issues[1]?.body).toContain("## Blocked by\n\n- Blocked by #8");
+    expect((await backlog.selectNextReadyTask())?.issue.number).toBe(8);
+
+    issues[2]!.state = "CLOSED";
+
+    expect((await backlog.selectNextReadyTask())?.issue.number).toBe(7);
   });
 
   it("creates a proposed follow-on issue with lineage and keeps it out of ready selection until upstream promotion", async () => {

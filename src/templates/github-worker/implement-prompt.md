@@ -37,9 +37,15 @@ If applicable, use RGR to complete the task.
 3. REPEAT until done
 4. REFACTOR the code
 
-# PROPOSED FOLLOW-ON TASKS
+# TASK COORDINATION RESULT HOOK
 
-If execution discovers one concrete, repo-relevant, non-blocking follow-on Task that should go back to Backlog Curation, emit exactly one structured result payload in your final output before `<promise>COMPLETE</promise>`:
+If execution discovers one concrete, repo-relevant Task outcome that Task Coordination should record, emit exactly one structured result payload in your final output before `<promise>COMPLETE</promise>`:
+
+<sandcastle-task-coordination-result>
+{"blockedByPrerequisite":{"title":"Concrete blocking prerequisite Task title","body":"## What to build\n\nDescribe the prerequisite Task that must land before the current Task can continue.\n"}}
+</sandcastle-task-coordination-result>
+
+Or:
 
 <sandcastle-task-coordination-result>
 {"proposedFollowOn":{"title":"Concrete follow-on Task title","body":"## What to build\n\nDescribe the concrete follow-on Task.\n"}}
@@ -47,9 +53,11 @@ If execution discovers one concrete, repo-relevant, non-blocking follow-on Task 
 
 Rules:
 
-- Emit this only for one non-blocking proposed follow-on Task. If none is needed, omit the tag entirely.
+- Use `"blockedByPrerequisite"` for one concrete blocking prerequisite Task.
+- Use `"proposedFollowOn"` for one concrete non-blocking follow-on Task that should return to Backlog Curation.
+- Emit at most one structured payload and at most one of those keys. If no Task outcome is needed, omit the tag entirely.
 - Keep the JSON valid. Do not wrap the tagged payload in a markdown code fence.
-- Do not create, close, or relabel the GitHub Issue yourself. Task Coordination will translate this into a proposed follow-on GitHub Issue, preserve lineage, and keep it outside normal ready selection until Backlog Curation promotes it.
+- Do not create, close, or relabel the GitHub Issue yourself. Task Coordination will translate `"blockedByPrerequisite"` into a ready GitHub Issue, preserve follow-on lineage, record explicit `Blocked by` dependency metadata on the current Task, and release the claim. Task Coordination will translate `"proposedFollowOn"` into a proposed follow-on GitHub Issue and keep it outside normal ready selection until Backlog Curation promotes it.
 
 # FEEDBACK LOOPS
 

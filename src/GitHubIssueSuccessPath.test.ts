@@ -74,10 +74,55 @@ const makeHostFirstIssueAgentWithProposedFollowOn = (
   };
 };
 
+const makeHostFirstIssueAgentWithBlockedByPrerequisite = (
+  eventsPath: string,
+  blockedByPrerequisite: {
+    readonly title: string;
+    readonly body: string;
+  },
+): AgentProvider => {
+  const baseProvider = claudeCode("test-model");
+  const assistantLine = JSON.stringify({
+    type: "assistant",
+    message: { content: [{ type: "text", text: "blocked on prerequisite" }] },
+  });
+  const promptSupportsBlockedByPrerequisite = (prompt: string): boolean =>
+    [
+      `<${TASK_COORDINATION_RESULT_TAG}>`,
+      '"blockedByPrerequisite"',
+      "blocking prerequisite Task",
+    ].every((snippet) => prompt.includes(snippet));
+
+  return {
+    name: "github-issue-success-path-agent-with-blocked-by-prerequisite",
+    env: {},
+    buildPrintCommand: ({ prompt }) => {
+      const resultLine = JSON.stringify({
+        type: "result",
+        result: promptSupportsBlockedByPrerequisite(prompt)
+          ? [
+              `<${TASK_COORDINATION_RESULT_TAG}>`,
+              JSON.stringify({ blockedByPrerequisite }),
+              `</${TASK_COORDINATION_RESULT_TAG}>`,
+              "<promise>COMPLETE</promise>",
+            ].join("\n")
+          : "<promise>COMPLETE</promise>",
+      });
+
+      return [
+        `printf '%s\\n' ${shellEscape(assistantLine)}`,
+        `printf '%s\\n' ${shellEscape("agent-start")} >> ${shellEscape(eventsPath)}`,
+        `printf '%s\\n' ${shellEscape(resultLine)}`,
+      ].join(" && ");
+    },
+    parseStreamLine: baseProvider.parseStreamLine,
+  };
+};
+
 interface InMemoryIssue {
   readonly number: number;
   readonly title: string;
-  readonly body: string;
+  body: string;
   state: "OPEN" | "CLOSED";
   readonly labels: string[];
   readonly comments: Array<{
@@ -185,6 +230,11 @@ const createInMemoryGh = (options: {
           if (labelIndex >= 0) {
             issue.labels.splice(labelIndex, 1);
           }
+          continue;
+        }
+
+        if (flag === "--body") {
+          issue.body = value;
           continue;
         }
 
@@ -449,6 +499,141 @@ describe("executeNextGitHubIssueTask", () => {
       reclaimedLeaseExpiresAt: "2026-04-19T00:30:00.000Z",
     });
     expect(events[2]?.leaseExpiresAt).toBeDefined();
+  });
+
+  it("creates a blocking prerequisite GitHub Issue, releases the current claim, and reselects the current Task only after the prerequisite closes", async () => {
+    const issues: InMemoryIssue[] = [
+      {
+        number: 1,
+        title: "PRD: host-first Task Coordination core for GitHub Issues",
+        body: "",
+        state: "OPEN",
+        labels: [],
+        comments: [],
+        url: "https://example.test/issues/1",
+      },
+      {
+        number: 7,
+        title: "Current Task with newly discovered prerequisite work",
+        body: "## Parent\n\n#1\n\n## What to build\n\nLand the current Task after prerequisite work is ready.\n",
+        state: "OPEN",
+        labels: ["ready-for-agent"],
+        comments: [],
+        url: "https://example.test/issues/7",
+      },
+    ];
+
+    const backlog = new GitHubIssueBacklog({
+      gh: createInMemoryGh({ issues }),
+    });
+    const result = await executeNextGitHubIssueTask({
+      backlog,
+      runId: "run-blocked-by-prerequisite",
+      now: () => new Date("2026-04-19T00:00:00.000Z"),
+      executeTask: async () => ({
+        branch: "main",
+        commits: [],
+        blockedByPrerequisite: {
+          title: "Add the GitHub Issue body patch helper first",
+          body: "## What to build\n\nCreate the issue body patch helper that the current Task now depends on.\n",
+        },
+      }),
+    });
+
+    expect(result.selectedTask?.issue.number).toBe(7);
+    expect(result.closed).toBe(false);
+    expect(result.blockingPrerequisiteTask).toMatchObject({
+      issue: {
+        number: 8,
+        title: "Add the GitHub Issue body patch helper first",
+        state: "OPEN",
+        labels: ["ready-for-agent"],
+      },
+      parentIssueNumber: 1,
+      followOnFromIssueNumber: 7,
+      dependencies: [],
+    });
+
+    const currentIssue = issues.find((issue) => issue.number === 7)!;
+    const prerequisiteIssue = issues.find((issue) => issue.number === 8)!;
+    const currentEvents = currentIssue.comments
+      .map((comment) => parseTaskCoordinationComment(comment.body))
+      .filter((comment) => comment !== undefined);
+
+    expect(prerequisiteIssue.body).toContain("## Parent\n\n#1");
+    expect(prerequisiteIssue.body).toContain(
+      "## Follow-on from\n\n- Follow-on from #7",
+    );
+    expect(currentIssue.body).toContain("## Blocked by\n\n- Blocked by #8");
+    expect(currentIssue.labels).toEqual(["ready-for-agent"]);
+    expect(currentEvents.map((comment) => comment.event)).toEqual([
+      "claim",
+      "release",
+    ]);
+    expect(currentEvents[1]).toMatchObject({
+      runId: "run-blocked-by-prerequisite",
+      reason: "Discovered blocking prerequisite #8.",
+    });
+    expect((await backlog.selectNextReadyTask())?.issue.number).toBe(8);
+
+    prerequisiteIssue.state = "CLOSED";
+
+    expect((await backlog.selectNextReadyTask())?.issue.number).toBe(7);
+  });
+
+  it("treats landed commits as done even when a blocked-by-prerequisite marker is present", async () => {
+    const issues: InMemoryIssue[] = [
+      {
+        number: 1,
+        title: "PRD: host-first Task Coordination core for GitHub Issues",
+        body: "",
+        state: "OPEN",
+        labels: [],
+        comments: [],
+        url: "https://example.test/issues/1",
+      },
+      {
+        number: 7,
+        title: "Current Task that already landed changes",
+        body: "## Parent\n\n#1\n\n## What to build\n\nLand the current Task before any new prerequisite metadata is recorded.\n",
+        state: "OPEN",
+        labels: ["ready-for-agent"],
+        comments: [],
+        url: "https://example.test/issues/7",
+      },
+    ];
+
+    const backlog = new GitHubIssueBacklog({
+      gh: createInMemoryGh({ issues }),
+    });
+    const result = await executeNextGitHubIssueTask({
+      backlog,
+      runId: "run-landed-marker-wins",
+      now: () => new Date("2026-04-19T00:00:00.000Z"),
+      executeTask: async () => ({
+        branch: "main",
+        commits: [{ sha: "commit-7" }],
+        blockedByPrerequisite: {
+          title: "Add the GitHub Issue body patch helper first",
+          body: "## What to build\n\nCreate the issue body patch helper that the current Task now depends on.\n",
+        },
+      }),
+    });
+
+    expect(result.selectedTask?.issue.number).toBe(7);
+    expect(result.closed).toBe(true);
+    expect(result.blockingPrerequisiteTask).toBeUndefined();
+
+    const currentIssue = issues.find((issue) => issue.number === 7)!;
+    expect(currentIssue.state).toBe("CLOSED");
+    expect(currentIssue.body).not.toContain("## Blocked by");
+    expect(issues).toHaveLength(2);
+    expect(
+      currentIssue.comments
+        .map((comment) => parseTaskCoordinationComment(comment.body))
+        .filter((comment) => comment !== undefined)
+        .map((comment) => comment.event),
+    ).toEqual(["claim", "done"]);
   });
 
   it("creates a proposed follow-on issue from the additive result hook while still closing the current Task", async () => {
@@ -827,6 +1012,144 @@ describe("executeNextGitHubIssueTask", () => {
         .filter((comment) => comment !== undefined)
         .map((comment) => comment.event),
     ).toEqual(["claim", "done"]);
+  });
+
+  it("claims the selected issue before host execution, uses the repo-local implement prompt to emit a blocked-by-prerequisite result tag, and keeps the current Task blocked until the prerequisite closes", async () => {
+    const originalCwd = process.cwd();
+    const repoImplementPromptPath = join(
+      originalCwd,
+      ".sandcastle",
+      "implement-prompt.md",
+    );
+    const hostDir = mkdtempSync(
+      join(tmpdir(), "sandcastle-github-issue-host-blocked-"),
+    );
+    const gitConfigDir = mkdtempSync(
+      join(tmpdir(), "sandcastle-github-issue-gitcfg-"),
+    );
+    const globalConfigPath = join(gitConfigDir, ".gitconfig");
+    const eventsPath = join(hostDir, "events.log");
+
+    writeFileSync(globalConfigPath, "");
+    writeFileSync(eventsPath, "");
+    execSync("git init -b main", { cwd: hostDir, stdio: "ignore" });
+    execSync('git config user.email "test@test.com"', {
+      cwd: hostDir,
+      stdio: "ignore",
+    });
+    execSync('git config user.name "Test"', {
+      cwd: hostDir,
+      stdio: "ignore",
+    });
+    writeFileSync(join(hostDir, "README.md"), "# Test\n");
+    execSync("git add README.md", { cwd: hostDir, stdio: "ignore" });
+    execSync('git commit -m "initial"', { cwd: hostDir, stdio: "ignore" });
+
+    process.chdir(hostDir);
+
+    const issues: InMemoryIssue[] = [
+      {
+        number: 1,
+        title: "PRD: host-first Task Coordination core for GitHub Issues",
+        body: "",
+        state: "OPEN",
+        labels: [],
+        comments: [],
+        url: "https://example.test/issues/1",
+      },
+      {
+        number: 7,
+        title: "Current Task with newly discovered prerequisite work",
+        body: "## Parent\n\n#1\n\n## What to build\n\nLand the current Task after prerequisite work is ready.\n",
+        state: "OPEN",
+        labels: ["ready-for-agent"],
+        comments: [],
+        url: "https://example.test/issues/7",
+      },
+    ];
+
+    const backlog = new GitHubIssueBacklog({
+      gh: createInMemoryGh({ issues }),
+    });
+
+    try {
+      const result = await executeNextGitHubIssueTask({
+        backlog,
+        runId: "run-blocked-issue-7",
+        now: () => new Date("2026-04-19T00:00:00.000Z"),
+        executeTask: async ({ parentIssue }) => {
+          expect(parentIssue?.number).toBe(1);
+
+          return run({
+            agent: makeHostFirstIssueAgentWithBlockedByPrerequisite(
+              eventsPath,
+              {
+                title: "Add the GitHub Issue body patch helper first",
+                body: "## What to build\n\nCreate the issue body patch helper that the current Task now depends on.\n",
+              },
+            ),
+            sandbox: noSandbox({
+              env: { GIT_CONFIG_GLOBAL: globalConfigPath },
+            }),
+            name: "Task-7-blocked",
+            promptFile: repoImplementPromptPath,
+            promptArgs: {
+              ISSUE_NUMBER: "7",
+              ISSUE_TITLE:
+                "Current Task with newly discovered prerequisite work",
+              PARENT_ISSUE_NUMBER: "1",
+              PARENT_ISSUE_TITLE:
+                "PRD: host-first Task Coordination core for GitHub Issues",
+            },
+            logging: { type: "file", path: join(hostDir, "run.log") },
+          });
+        },
+      });
+
+      expect(result.selectedTask?.issue.number).toBe(7);
+      expect(result.closed).toBe(false);
+      expect(result.blockingPrerequisiteTask).toMatchObject({
+        issue: {
+          number: 8,
+          title: "Add the GitHub Issue body patch helper first",
+          state: "OPEN",
+          labels: ["ready-for-agent"],
+        },
+        parentIssueNumber: 1,
+        followOnFromIssueNumber: 7,
+        dependencies: [],
+      });
+
+      const currentIssue = issues.find((issue) => issue.number === 7)!;
+      const prerequisiteIssue = issues.find((issue) => issue.number === 8)!;
+      const currentEvents = currentIssue.comments
+        .map((comment) => parseTaskCoordinationComment(comment.body))
+        .filter((comment) => comment !== undefined);
+
+      expect(prerequisiteIssue.body).toContain("## Parent\n\n#1");
+      expect(prerequisiteIssue.body).toContain(
+        "## Follow-on from\n\n- Follow-on from #7",
+      );
+      expect(currentIssue.body).toContain("## Blocked by\n\n- Blocked by #8");
+      expect(currentEvents.map((comment) => comment.event)).toEqual([
+        "claim",
+        "release",
+      ]);
+      expect((await backlog.selectNextReadyTask())?.issue.number).toBe(8);
+
+      prerequisiteIssue.state = "CLOSED";
+      expect((await backlog.selectNextReadyTask())?.issue.number).toBe(7);
+      expect(
+        execSync("git rev-list --count HEAD", {
+          cwd: hostDir,
+          encoding: "utf8",
+        }).trim(),
+      ).toBe("1");
+    } finally {
+      process.chdir(originalCwd);
+      rmSync(hostDir, { recursive: true, force: true });
+      rmSync(gitConfigDir, { recursive: true, force: true });
+    }
   });
 
   it("claims the selected issue before host execution, uses the repo-local implement prompt to emit a proposed follow-on result tag, and still closes the current issue only after land", async () => {
