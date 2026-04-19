@@ -53,6 +53,8 @@ export type {
   OpenCodeOptions,
   PiOptions,
 } from "./AgentProvider.js";
+export { GitHubIssueBacklog } from "./GitHubIssueBacklog.js";
+export { executeNextGitHubIssueTask } from "./GitHubIssueSuccessPath.js";
 export {
   createBindMountSandboxProvider,
   createIsolatedSandboxProvider,

@@ -1,0 +1,4 @@
+{
+  "name": "github-worker",
+  "description": "Host-first GitHub Issue Task Coordination worker with a selected Task per run"
+}

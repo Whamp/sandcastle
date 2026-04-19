@@ -33,13 +33,13 @@ Sandcastle is provider-agnostic — it ships with built-in providers for Docker,
 npm install @ai-hero/sandcastle
 ```
 
-2. Run `sandcastle init`. This scaffolds a `.sandcastle` directory with all the files needed.
+2. Run `sandcastle init`. The default happy path scaffolds a Pi-first, host-first GitHub Issue Task Coordination worker.
 
 ```bash
 npx sandcastle init
 ```
 
-3. Edit `.sandcastle/.env` and fill in your default values for `ANTHROPIC_API_KEY`. If you want to use your Claude subscription instead of an API key, see [#191](https://github.com/mattpocock/sandcastle/issues/191).
+3. Edit `.sandcastle/.env` and fill in the required values from `.sandcastle/.env.example` (typically `ANTHROPIC_API_KEY` and `GH_TOKEN` on the default GitHub worker path). If you want to use your Claude subscription instead of an API key, see [#191](https://github.com/mattpocock/sandcastle/issues/191).
 
 ```bash
 cp .sandcastle/.env.example .sandcastle/.env
@@ -52,14 +52,29 @@ npx tsx .sandcastle/main.ts
 ```
 
 ```typescript
-// 3. Run the agent via the JS API
-import { run, claudeCode } from "@ai-hero/sandcastle";
-import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
+import * as sandcastle from "@ai-hero/sandcastle";
+import {
+  GitHubIssueBacklog,
+  executeNextGitHubIssueTask,
+} from "@ai-hero/sandcastle";
+import { noSandbox } from "@ai-hero/sandcastle/sandboxes/no-sandbox";
 
-await run({
-  agent: claudeCode("claude-opus-4-6"),
-  sandbox: docker(), // or podman(), vercel(), or your own provider
-  promptFile: ".sandcastle/prompt.md",
+const backlog = new GitHubIssueBacklog();
+
+await executeNextGitHubIssueTask({
+  backlog,
+  executeTask: ({ selectedTask, parentIssue }) =>
+    sandcastle.run({
+      agent: sandcastle.pi("claude-sonnet-4-6"),
+      sandbox: noSandbox(),
+      promptFile: ".sandcastle/implement-prompt.md",
+      promptArgs: {
+        ISSUE_NUMBER: String(selectedTask.issue.number),
+        ISSUE_TITLE: selectedTask.issue.title,
+        PARENT_ISSUE_NUMBER: parentIssue ? String(parentIssue.number) : "none",
+        PARENT_ISSUE_TITLE: parentIssue?.title ?? "none",
+      },
+    }),
 });
 ```
 
@@ -480,7 +495,7 @@ You must provide exactly one of:
 
 `prompt` and `promptFile` are mutually exclusive — providing both is an error. If neither is provided, `run()` throws an error asking you to supply one.
 
-> **Convention**: `sandcastle init` scaffolds `.sandcastle/prompt.md` and all templates explicitly reference it via `promptFile: ".sandcastle/prompt.md"`. This is a convention, not an automatic fallback — Sandcastle does not read `.sandcastle/prompt.md` unless you pass it as `promptFile`.
+> **Convention**: `sandcastle init` scaffolds template-specific prompt files such as `.sandcastle/implement-prompt.md` or `.sandcastle/prompt.md`, and every template references its chosen file explicitly via `promptFile`. This is a convention, not an automatic fallback — Sandcastle only reads the prompt file you pass in `RunOptions`.
 
 ### Dynamic context with `` !`command` ``
 
@@ -569,15 +584,16 @@ Tell the agent to output your chosen string(s) in the prompt, and the orchestrat
 
 ### Templates
 
-`sandcastle init` prompts you to choose a sandbox provider (Docker or Podman), a backlog manager (GitHub Issues or Beads), and a template, which scaffolds a ready-to-use prompt and `main.mts` suited to a specific workflow. If your project's `package.json` has `"type": "module"`, the file will be named `main.ts` instead. Five templates are available:
+`sandcastle init` prompts you to choose a template and an execution mode. Sandbox-oriented templates also prompt for a backlog manager. The default happy path is the `github-worker` template on host execution with Pi and GitHub Issues. That template stays pinned to GitHub Issues so its host-first Task Coordination scaffold, `ready-for-agent` guidance, and `GH_TOKEN` setup remain consistent with the GitHub-first single-adapter contract. If your project's `package.json` has `"type": "module"`, the file will be named `main.ts` instead. Six templates are available:
 
-| Template                       | Description                                                               |
-| ------------------------------ | ------------------------------------------------------------------------- |
-| `blank`                        | Bare scaffold — write your own prompt and orchestration                   |
-| `simple-loop`                  | Picks GitHub issues one by one and closes them                            |
-| `sequential-reviewer`          | Implements issues one by one, with a code review step after each          |
-| `parallel-planner`             | Plans parallelizable issues, executes on separate branches, then merges   |
-| `parallel-planner-with-review` | Plans parallelizable issues, executes with per-branch review, then merges |
+| Template                       | Description                                                                   |
+| ------------------------------ | ----------------------------------------------------------------------------- |
+| `github-worker`                | Host-first GitHub Issue Task Coordination worker with a selected Task per run |
+| `blank`                        | Bare scaffold — write your own prompt and orchestration                       |
+| `simple-loop`                  | Picks GitHub issues one by one and closes them                                |
+| `sequential-reviewer`          | Implements issues one by one, with a code review step after each              |
+| `parallel-planner`             | Plans parallelizable issues, executes on separate branches, then merges       |
+| `parallel-planner-with-review` | Plans parallelizable issues, executes with per-branch review, then merges     |
 
 Select a template during `sandcastle init` when prompted, or re-run init in a fresh repo to try a different one.
 
@@ -585,24 +601,26 @@ Select a template during `sandcastle init` when prompted, or re-run init in a fr
 
 ### `sandcastle init`
 
-Scaffolds the `.sandcastle/` config directory and builds the container image. This is the first command you run in a new repo. You choose a sandbox provider (Docker or Podman) during init — selecting Podman writes a `Containerfile` instead of `Dockerfile` and uses `sandcastle podman build-image` for the build step.
+Scaffolds the `.sandcastle/` config directory. This is the first command you run in a new repo. The default happy path is host execution with the `github-worker` template, so init skips container-image setup and keeps the backlog manager on GitHub Issues. Sandbox-oriented templates still let you choose Docker or Podman during init — selecting Podman writes a `Containerfile` instead of `Dockerfile` and uses `sandcastle podman build-image` for the build step.
 
-| Option         | Required | Default                      | Description                                                          |
-| -------------- | -------- | ---------------------------- | -------------------------------------------------------------------- |
-| `--image-name` | No       | `sandcastle:<repo-dir-name>` | Docker image name                                                    |
-| `--agent`      | No       | Interactive prompt           | Agent to use (`claude-code`, `pi`, `codex`, `opencode`)              |
-| `--model`      | No       | Agent's default model        | Model to use (e.g. `claude-sonnet-4-6`). Defaults to agent's default |
-| `--template`   | No       | Interactive prompt           | Template to scaffold (e.g. `blank`, `simple-loop`)                   |
+| Option         | Required | Default                                          | Description                                                          |
+| -------------- | -------- | ------------------------------------------------ | -------------------------------------------------------------------- |
+| `--image-name` | No       | `sandcastle:<repo-dir-name>`                     | Docker image name                                                    |
+| `--agent`      | No       | Interactive prompt (defaults to Pi)              | Agent to use (`claude-code`, `pi`, `codex`, `opencode`)              |
+| `--model`      | No       | Agent's default model                            | Model to use (e.g. `claude-sonnet-4-6`). Defaults to agent's default |
+| `--template`   | No       | Interactive prompt (defaults to `github-worker`) | Template to scaffold (e.g. `github-worker`, `blank`, `simple-loop`)  |
 
-Creates the following files:
+The default `github-worker` path creates files like:
 
 ```
 .sandcastle/
-├── Dockerfile      # Sandbox environment (customize as needed)
-├── prompt.md       # Agent instructions
-├── .env.example    # Token placeholders
-└── .gitignore      # Ignores .env, logs/
+├── main.mts             # Host-first GitHub worker entrypoint
+├── implement-prompt.md  # Instructions for the selected Task
+├── .env.example         # Token placeholders
+└── .gitignore           # Ignores .env, logs/
 ```
+
+The `github-worker` template is intentionally fixed to GitHub Issues so the generated host-first worker, `ready-for-agent` labeling flow, and `.env.example` stay aligned. Sandbox-oriented templates also add a `Dockerfile` or `Containerfile` when you choose Docker or Podman.
 
 Errors if `.sandcastle/` already exists to prevent overwriting customizations.
 

@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { SANDBOX_REPO_DIR } from "./SandboxFactory.js";
+import { templateSupportsInitBacklogManager } from "./initDefaults.js";
 
 const GITIGNORE = `.env
 logs/
@@ -15,6 +16,11 @@ export interface TemplateMetadata {
 }
 
 const TEMPLATES: TemplateMetadata[] = [
+  {
+    name: "github-worker",
+    description:
+      "Host-first GitHub Issue Task Coordination worker with a selected Task per run",
+  },
   {
     name: "blank",
     description: "Bare scaffold — write your own prompt and orchestration",
@@ -334,6 +340,17 @@ export function getNextStepsLines(
   template: string,
   mainFilename: string,
 ): string[] {
+  if (template === "github-worker") {
+    return [
+      "Next steps:",
+      `1. Set the required env vars in .sandcastle/.env (see .sandcastle/.env.example)`,
+      `${2}. Add "sandcastle": "npx tsx .sandcastle/${mainFilename}" to your package.json scripts`,
+      `${3}. Read and customize .sandcastle/implement-prompt.md — Task Coordination selects the ready GitHub Issue Task before the agent runs`,
+      `${4}. Promote the GitHub Issues you want worked by labeling ready Tasks with \`ready-for-agent\``,
+      `${5}. Run \`npm run sandcastle\` to start the host-first GitHub worker`,
+    ];
+  }
+
   if (template === "blank") {
     return [
       "Next steps:",
@@ -576,6 +593,8 @@ const substituteTemplateArgs = (
 // Main scaffold function
 // ---------------------------------------------------------------------------
 
+export type InitExecutionMode = "host" | "docker" | "podman";
+
 export interface ScaffoldOptions {
   agent: AgentEntry;
   model: string;
@@ -583,6 +602,7 @@ export interface ScaffoldOptions {
   createLabel?: boolean;
   backlogManager?: BacklogManagerEntry;
   sandboxProvider?: SandboxProviderEntry;
+  executionMode?: InitExecutionMode;
 }
 
 export interface ScaffoldResult {
@@ -614,6 +634,24 @@ const detectMainFilename = (
     }
   });
 
+const resolveSandboxProviderForScaffold = (
+  options: Pick<ScaffoldOptions, "executionMode" | "sandboxProvider">,
+): SandboxProviderEntry | undefined => {
+  if (options.executionMode === "host") {
+    return undefined;
+  }
+
+  if (options.sandboxProvider) {
+    return options.sandboxProvider;
+  }
+
+  if (options.executionMode === "podman") {
+    return getSandboxProvider("podman");
+  }
+
+  return getSandboxProvider("docker");
+};
+
 export const scaffold = (
   repoDir: string,
   options: ScaffoldOptions,
@@ -625,8 +663,8 @@ export const scaffold = (
       templateName = "blank",
       createLabel = true,
       backlogManager = BACKLOG_MANAGER_REGISTRY[0]!, // default: github-issues
-      sandboxProvider = SANDBOX_PROVIDER_REGISTRY[0]!, // default: docker
     } = options;
+    const sandboxProvider = resolveSandboxProviderForScaffold(options);
     const fs = yield* FileSystem.FileSystem;
     const configDir = join(repoDir, ".sandcastle");
 
@@ -637,6 +675,14 @@ export const scaffold = (
       yield* Effect.fail(
         new Error(
           ".sandcastle/ directory already exists. Remove it first if you want to re-initialize.",
+        ),
+      );
+    }
+
+    if (!templateSupportsInitBacklogManager(templateName, backlogManager.name)) {
+      yield* Effect.fail(
+        new Error(
+          `The ${templateName} template requires the github-issues backlog manager.`,
         ),
       );
     }
@@ -656,24 +702,28 @@ export const scaffold = (
     }
     const envExampleContent = envExampleParts.join("\n") + "\n";
 
-    yield* Effect.all(
-      [
+    const scaffoldEffects = [
+      fs
+        .writeFileString(join(configDir, ".gitignore"), GITIGNORE)
+        .pipe(Effect.mapError((e) => new Error(e.message))),
+      fs
+        .writeFileString(join(configDir, ".env.example"), envExampleContent)
+        .pipe(Effect.mapError((e) => new Error(e.message))),
+      copyTemplateFiles(templateDir, configDir, mainFilename),
+    ];
+
+    if (sandboxProvider) {
+      scaffoldEffects.unshift(
         fs
           .writeFileString(
             join(configDir, sandboxProvider.containerfileName),
             agent.dockerfileTemplate,
           )
           .pipe(Effect.mapError((e) => new Error(e.message))),
-        fs
-          .writeFileString(join(configDir, ".gitignore"), GITIGNORE)
-          .pipe(Effect.mapError((e) => new Error(e.message))),
-        fs
-          .writeFileString(join(configDir, ".env.example"), envExampleContent)
-          .pipe(Effect.mapError((e) => new Error(e.message))),
-        copyTemplateFiles(templateDir, configDir, mainFilename),
-      ],
-      { concurrency: "unbounded" },
-    );
+      );
+    }
+
+    yield* Effect.all(scaffoldEffects, { concurrency: "unbounded" });
 
     // Rewrite main file with the selected agent factory and model
     yield* rewriteMainTs(configDir, agent, model, mainFilename);
