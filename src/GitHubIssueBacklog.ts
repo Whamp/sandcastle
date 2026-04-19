@@ -153,6 +153,13 @@ export const parseTaskCoordinationComment = (
   }
 };
 
+export const hasRecordedTaskCoordinationDone = (
+  comments: readonly GitHubIssueComment[],
+): boolean =>
+  comments.some(
+    (comment) => parseTaskCoordinationComment(comment.body)?.event === "done",
+  );
+
 export const hasUnresolvedTaskCoordinationClaim = (
   comments: readonly GitHubIssueComment[],
 ): boolean => {
@@ -227,6 +234,10 @@ export class GitHubIssueBacklog {
     for (const issueNumber of orderedIssueNumbers) {
       const issue = await this.getIssue(issueNumber);
       if (isPrdIssue(issue)) {
+        continue;
+      }
+
+      if (hasRecordedTaskCoordinationDone(issue.comments)) {
         continue;
       }
 

@@ -2,4 +2,4 @@
 "@ai-hero/sandcastle": patch
 ---
 
-Add a host-first GitHub Issue Task Coordination success path that selects one ready issue before execution, records a durable structured claim comment, lands the change via merge-to-head worktree safety, and closes the issue only after land succeeds.
+Add the repo-local host-first GitHub Issue Task Coordination success path used by the bundled `.sandcastle` workflow, selecting one ready GitHub Issue before execution, recording a durable structured claim comment, landing the change via merge-to-head worktree safety, and closing the issue only after land succeeds.

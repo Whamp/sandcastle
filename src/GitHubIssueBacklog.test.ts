@@ -107,6 +107,49 @@ describe("GitHubIssueBacklog task coordination comments", () => {
 });
 
 describe("GitHubIssueBacklog.selectNextReadyTask", () => {
+  it("skips an open GitHub Issue Task after Task Coordination records done", async () => {
+    const doneComment = formatTaskCoordinationComment({
+      kind: "sandcastle-task-coordination",
+      version: 1,
+      event: "done",
+      runId: "run-done",
+      executionMode: "host",
+      recordedAt: "2026-04-19T00:00:00.000Z",
+      branch: "main",
+      commits: ["abc123"],
+    });
+
+    const backlog = new GitHubIssueBacklog({
+      gh: createFakeGh([
+        {
+          number: 2,
+          title: "Landed implementation issue awaiting close retry",
+          body: "",
+          state: "OPEN",
+          comments: [
+            {
+              body: doneComment,
+              createdAt: "2026-04-19T00:01:00.000Z",
+              author: { login: "sandcastle" },
+            },
+          ],
+        },
+        {
+          number: 3,
+          title: "Next ready implementation issue",
+          body: "",
+          state: "OPEN",
+          comments: [],
+        },
+      ]),
+    });
+
+    const selectedTask = await backlog.selectNextReadyTask();
+
+    expect(selectedTask?.issue.number).toBe(3);
+    expect(selectedTask?.issue.title).toBe("Next ready implementation issue");
+  });
+
   it("selects the lowest-number ready GitHub Issue task and skips PRDs, blocked issues, and unresolved claims", async () => {
     const claimedComment = formatTaskCoordinationComment({
       kind: "sandcastle-task-coordination",
