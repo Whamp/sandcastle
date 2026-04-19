@@ -1,7 +1,7 @@
 import { run, claudeCode } from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 
-// Simple loop: a Task Coordination template that works one task at a time and closes each task after land.
+// Simple loop: a legacy Task Coordination template that lands one task at a time and leaves task closure to your workflow.
 // Run this with: npx tsx .sandcastle/main.mts
 // Or add to package.json scripts: "sandcastle": "npx tsx .sandcastle/main.mts"
 

@@ -590,8 +590,8 @@ Tell the agent to output your chosen string(s) in the prompt, and Sandcastle wil
 | ------------------------------ | --------------------------------------------------------------------------------------------------------- |
 | `github-issues-coordinator`    | Host-first Task Coordination template backed by GitHub Issues                                             |
 | `blank`                        | Bare scaffold — build your own execution flow or Task Coordination pattern                                |
-| `simple-loop`                  | Task Coordination template that works one task at a time and closes each task after land                 |
-| `sequential-reviewer`          | Task Coordination template that works one task at a time with a review step before land                  |
+| `simple-loop`                  | Legacy Task Coordination template that lands one task at a time and leaves task closure to your workflow |
+| `sequential-reviewer`          | Legacy Task Coordination template that lands one task at a time, then runs a review pass on the landed branch |
 | `parallel-planner`             | Task Coordination template that plans task dependencies, executes ready tasks on separate branches, then lands the results |
 | `parallel-planner-with-review` | Task Coordination template that plans task dependencies, executes ready tasks with per-branch review, then lands the results |
 

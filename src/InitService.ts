@@ -29,12 +29,12 @@ const TEMPLATES: TemplateMetadata[] = [
   {
     name: "simple-loop",
     description:
-      "Task Coordination template that works one task at a time and closes each task after land",
+      "Legacy Task Coordination template that lands one task at a time and leaves task closure to your workflow",
   },
   {
     name: "sequential-reviewer",
     description:
-      "Task Coordination template that works one task at a time with a review step before land",
+      "Legacy Task Coordination template that lands one task at a time, then runs a review pass on the landed branch",
   },
   {
     name: "parallel-planner",

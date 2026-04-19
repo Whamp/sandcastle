@@ -455,10 +455,13 @@ describe("InitService scaffold", () => {
     expect(descriptions["blank"]).toBe(
       "Bare scaffold — build your own execution flow or Task Coordination pattern",
     );
-    expect(descriptions["simple-loop"]).toContain(
-      "works one task at a time and closes each task after land",
+    expect(descriptions["simple-loop"]).toBe(
+      "Legacy Task Coordination template that lands one task at a time and leaves task closure to your workflow",
     );
     expect(descriptions["simple-loop"]).not.toContain("GitHub issues");
+    expect(descriptions["sequential-reviewer"]).toBe(
+      "Legacy Task Coordination template that lands one task at a time, then runs a review pass on the landed branch",
+    );
     expect(descriptions["parallel-planner"]).toBe(
       "Task Coordination template that plans task dependencies, executes ready tasks on separate branches, then lands the results",
     );
@@ -535,7 +538,7 @@ describe("InitService scaffold", () => {
     expect(mainTs).toContain("onSandboxReady");
   });
 
-  it("simple-loop prompt.md contains task-first shell expressions and completion guidance", async () => {
+  it("simple-loop prompt.md contains task-first shell expressions and does not tell the agent to close the task before land", async () => {
     const dir = await makeDir();
     await runScaffold(dir, { templateName: "simple-loop" });
 
@@ -549,6 +552,8 @@ describe("InitService scaffold", () => {
     expect(prompt).toContain("Work on tasks in this order:");
     expect(prompt).toContain("Pick the highest-priority open task");
     expect(prompt).toContain("one task per iteration");
+    expect(prompt).toContain("do not close the task from inside this prompt");
+    expect(prompt).not.toContain("close the task with");
     expect(prompt).not.toContain("## Open issues");
     expect(prompt).not.toContain("Work on issues in this order:");
     expect(prompt).not.toContain("Pick the highest-priority open issue");
@@ -600,7 +605,7 @@ describe("InitService scaffold", () => {
       expect(mainTs).toContain("review-prompt.md");
     });
 
-    it("main.mts passes branch from implement result to review run", async () => {
+    it("main.mts passes landed-branch review prompt arguments from the implement result to the review run", async () => {
       const dir = await makeDir();
       await runScaffold(dir, { templateName: "sequential-reviewer" });
 
@@ -608,10 +613,16 @@ describe("InitService scaffold", () => {
         join(dir, ".sandcastle", "main.mts"),
         "utf-8",
       );
-      expect(mainTs).toContain("branch");
+      expect(mainTs).toContain("const branch = implement.branch");
+      expect(mainTs).toContain('const reviewBase = `${implement.commits[0]!.sha}^`');
+      expect(mainTs).toContain(
+        "const reviewHead = implement.commits[implement.commits.length - 1]!.sha",
+      );
+      expect(mainTs).toContain("REVIEW_BASE: reviewBase");
+      expect(mainTs).toContain("REVIEW_HEAD: reviewHead");
     });
 
-    it("implement-prompt.md uses task-first selection and closure language, not prompt argument placeholders", async () => {
+    it("implement-prompt.md uses task-first selection language and leaves task closure outside the prompt", async () => {
       const dir = await makeDir();
       await runScaffold(dir, { templateName: "sequential-reviewer" });
 
@@ -620,10 +631,11 @@ describe("InitService scaffold", () => {
         "utf-8",
       );
       expect(prompt).toContain("gh issue list");
-      expect(prompt).toContain("gh issue close");
       expect(prompt).toContain("## Open tasks");
       expect(prompt).toContain("Pick the highest-priority open task");
-      expect(prompt).toContain("close the task with");
+      expect(prompt).toContain("do not close the task from inside this prompt");
+      expect(prompt).not.toContain("gh issue close");
+      expect(prompt).not.toContain("close the task with");
       expect(prompt).not.toContain("## Open issues");
       expect(prompt).not.toContain("Pick the highest-priority open issue");
       expect(prompt).not.toContain("{{ISSUE_NUMBER}}");
@@ -631,7 +643,7 @@ describe("InitService scaffold", () => {
       expect(prompt).not.toContain("{{BRANCH}}");
     });
 
-    it("review-prompt.md contains {{BRANCH}} prompt argument", async () => {
+    it("review-prompt.md inspects the landed change with prompt arguments instead of diffing main against the same branch", async () => {
       const dir = await makeDir();
       await runScaffold(dir, { templateName: "sequential-reviewer" });
 
@@ -640,6 +652,14 @@ describe("InitService scaffold", () => {
         "utf-8",
       );
       expect(prompt).toContain("{{BRANCH}}");
+      expect(prompt).toContain("{{REVIEW_BASE}}");
+      expect(prompt).toContain("{{REVIEW_HEAD}}");
+      expect(prompt).toContain("git diff {{REVIEW_BASE}} {{REVIEW_HEAD}}");
+      expect(prompt).toContain(
+        "git log --oneline --no-merges {{REVIEW_BASE}}..{{REVIEW_HEAD}}",
+      );
+      expect(prompt).not.toContain("git diff main...{{BRANCH}}");
+      expect(prompt).not.toContain("git log main..{{BRANCH}} --oneline");
     });
 
     it("sequential-reviewer appears in listTemplates()", async () => {
@@ -1336,7 +1356,7 @@ describe("InitService scaffold", () => {
   });
 
   describe("Backlog manager scaffold", () => {
-    it("simple-loop with github-issues produces prompt with gh issue commands (richer version)", async () => {
+    it("simple-loop with github-issues produces prompt with gh issue list commands but no agent-side close command", async () => {
       const dir = await makeDir();
       await runScaffold(dir, {
         templateName: "simple-loop",
@@ -1350,12 +1370,12 @@ describe("InitService scaffold", () => {
       expect(prompt).toContain("gh issue list");
       expect(prompt).toContain("labels");
       expect(prompt).toContain("comments");
-      expect(prompt).toContain("gh issue close");
+      expect(prompt).not.toContain("gh issue close");
       expect(prompt).not.toContain("{{LIST_TASKS_COMMAND}}");
       expect(prompt).not.toContain("{{CLOSE_TASK_COMMAND}}");
     });
 
-    it("simple-loop with beads produces prompt with bd commands", async () => {
+    it("simple-loop with beads produces prompt with bd task listing but no agent-side close command", async () => {
       const dir = await makeDir();
       await runScaffold(dir, {
         templateName: "simple-loop",
@@ -1367,7 +1387,7 @@ describe("InitService scaffold", () => {
         "utf-8",
       );
       expect(prompt).toContain("bd ready --json");
-      expect(prompt).toContain("bd close");
+      expect(prompt).not.toContain("bd close");
       expect(prompt).not.toContain("gh issue");
       expect(prompt).not.toContain("{{LIST_TASKS_COMMAND}}");
       expect(prompt).not.toContain("{{CLOSE_TASK_COMMAND}}");
@@ -1433,7 +1453,7 @@ describe("InitService scaffold", () => {
 
     // --- sequential-reviewer ---
 
-    it("sequential-reviewer with github-issues produces implement-prompt with gh issue commands", async () => {
+    it("sequential-reviewer with github-issues produces implement-prompt with gh issue list commands but no agent-side close command", async () => {
       const dir = await makeDir();
       await runScaffold(dir, {
         templateName: "sequential-reviewer",
@@ -1447,12 +1467,12 @@ describe("InitService scaffold", () => {
       expect(prompt).toContain("gh issue list");
       expect(prompt).toContain("labels");
       expect(prompt).toContain("comments");
-      expect(prompt).toContain("gh issue close");
+      expect(prompt).not.toContain("gh issue close");
       expect(prompt).not.toContain("{{LIST_TASKS_COMMAND}}");
       expect(prompt).not.toContain("{{CLOSE_TASK_COMMAND}}");
     });
 
-    it("sequential-reviewer with beads produces implement-prompt with bd commands", async () => {
+    it("sequential-reviewer with beads produces implement-prompt with bd task listing but no agent-side close command", async () => {
       const dir = await makeDir();
       await runScaffold(dir, {
         templateName: "sequential-reviewer",
@@ -1464,7 +1484,7 @@ describe("InitService scaffold", () => {
         "utf-8",
       );
       expect(prompt).toContain("bd ready --json");
-      expect(prompt).toContain("bd close");
+      expect(prompt).not.toContain("bd close");
       expect(prompt).not.toContain("gh issue");
       expect(prompt).not.toContain("{{LIST_TASKS_COMMAND}}");
       expect(prompt).not.toContain("{{CLOSE_TASK_COMMAND}}");

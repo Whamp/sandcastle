@@ -1,16 +1,16 @@
 # TASK
 
-Review the code changes on branch `{{BRANCH}}` and improve code clarity, consistency, and maintainability while preserving exact functionality.
+Review the landed changes on branch `{{BRANCH}}` and improve code clarity, consistency, and maintainability while preserving exact functionality.
 
 # CONTEXT
 
-## Branch diff
+## Landed diff for this iteration
 
-!`git diff main...{{BRANCH}}`
+!`git diff {{REVIEW_BASE}} {{REVIEW_HEAD}}`
 
-## Commits on this branch
+## Landed commits for this iteration
 
-!`git log main..{{BRANCH}} --oneline`
+!`git log --oneline --no-merges {{REVIEW_BASE}}..{{REVIEW_HEAD}}`
 
 # REVIEW PROCESS
 
@@ -46,7 +46,7 @@ Review the code changes on branch `{{BRANCH}}` and improve code clarity, consist
 
 If you find improvements to make:
 
-1. Make the changes directly on this branch
+1. Make the changes directly on this landed branch
 2. Run tests and type checking to ensure nothing is broken
 3. Commit describing the refinements
 

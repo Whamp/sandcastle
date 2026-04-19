@@ -35,14 +35,14 @@ Pick the highest-priority open task that is not blocked by another open task.
    - List key decisions made
    - List files changed
    - Note any blockers for the next iteration
-6. **Close** — close the task with `{{CLOSE_TASK_COMMAND}}` explaining what was done.
+6. **Stop after commit** — do not close the task from inside this prompt. This legacy template only lands the change after the agent run exits, so task closure must happen outside the prompt once land succeeds.
 
 ## Rules
 
 - Work on **one task per iteration**. Do not attempt multiple tasks in a single iteration.
-- Do not close a task until you have committed the fix and verified tests pass.
+- Do not close a task from inside this prompt. This legacy template leaves task closure to a human or external workflow after land.
 - Do not leave commented-out code or TODO comments in committed code.
-- If you are blocked (missing context, failing tests you cannot fix, external dependency), leave a comment on the task and move on — do not close it.
+- If you are blocked (missing context, failing tests you cannot fix, external dependency), leave a comment on the task and move on.
 
 # Done
 

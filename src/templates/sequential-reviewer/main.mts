@@ -2,10 +2,11 @@
 //
 // This template drives a two-phase workflow per task:
 //   Phase 1 (Implement): A sonnet agent picks the next open task, works on it
-//                        on a dedicated branch, commits the changes, and signals
-//                        completion.
-//   Phase 2 (Review):    A second sonnet agent reviews the branch diff and either
-//                        approves it or makes corrections directly on the branch.
+//                        on a temporary branch, and merge-to-head lands the
+//                        resulting commits back onto the target branch.
+//   Phase 2 (Review):    A second sonnet agent reviews that landed change set
+//                        and either approves it or makes corrections directly
+//                        on the landed branch.
 //
 // The outer loop repeats up to MAX_ITERATIONS times, processing one task per
 // iteration. This is a middle-complexity option between the simple-loop (no review
@@ -53,7 +54,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // the result.
   //
   // The agent signals completion via <promise>COMPLETE</promise> when done.
-  // The result contains the branch name the agent worked on.
+  // The result contains the landed target branch plus the landed commits.
   // -------------------------------------------------------------------------
   const implement = await sandcastle.run({
     hooks,
@@ -66,7 +67,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     promptFile: "./.sandcastle/implement-prompt.md",
   });
 
-  // Extract the branch the agent worked on so the reviewer can target it.
+  // In merge-to-head mode, implement.branch is the landed target branch.
   const branch = implement.branch;
 
   if (!implement.commits.length) {
@@ -74,15 +75,18 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     continue;
   }
 
+  const reviewBase = `${implement.commits[0]!.sha}^`;
+  const reviewHead = implement.commits[implement.commits.length - 1]!.sha;
+
   console.log(`\nImplementation complete on branch: ${branch}`);
   console.log(`Commits: ${implement.commits.length}`);
 
   // -------------------------------------------------------------------------
   // Phase 2: Review
   //
-  // A second sonnet agent reviews the diff of the branch produced by Phase 1.
-  // It uses the {{BRANCH}} prompt argument to inspect the right branch, and
-  // either approves or makes corrections directly on the branch.
+  // A second sonnet agent reviews the landed change set from Phase 1.
+  // It uses {{BRANCH}}, {{REVIEW_BASE}}, and {{REVIEW_HEAD}} to inspect the
+  // landed branch and the exact commit range from this iteration.
   // -------------------------------------------------------------------------
   await sandcastle.run({
     hooks,
@@ -93,10 +97,12 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     maxIterations: 1,
     agent: sandcastle.claudeCode("claude-sonnet-4-6"),
     promptFile: "./.sandcastle/review-prompt.md",
-    // Prompt arguments substitute {{BRANCH}} in review-prompt.md before the
-    // agent sees the prompt.
+    // Prompt arguments substitute the landed-branch review context in
+    // review-prompt.md before the agent sees the prompt.
     promptArgs: {
       BRANCH: branch,
+      REVIEW_BASE: reviewBase,
+      REVIEW_HEAD: reviewHead,
     },
   });
 

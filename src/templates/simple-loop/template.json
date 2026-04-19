@@ -1,4 +1,4 @@
 {
   "name": "simple-loop",
-  "description": "Task Coordination template that works one task at a time and closes each task after land"
+  "description": "Legacy Task Coordination template that lands one task at a time and leaves task closure to your workflow"
 }
