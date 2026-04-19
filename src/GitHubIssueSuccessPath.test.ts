@@ -17,6 +17,7 @@ import {
 } from "./GitHubIssueBacklog.js";
 import {
   executeNextGitHubIssueTask,
+  TASK_COORDINATION_RESULT_TAG,
   type ExecuteGitHubIssueTaskOptions,
 } from "./GitHubIssueSuccessPath.js";
 import { run } from "./run.js";
@@ -25,7 +26,13 @@ import { noSandbox } from "./sandboxes/no-sandbox.js";
 const shellEscape = (value: string): string =>
   "'" + value.replace(/'/g, "'\\''") + "'";
 
-const makeHostFirstIssueAgent = (eventsPath: string): AgentProvider => {
+const makeHostFirstIssueAgentWithProposedFollowOn = (
+  eventsPath: string,
+  proposedFollowOn: {
+    readonly title: string;
+    readonly body: string;
+  },
+): AgentProvider => {
   const baseProvider = claudeCode("test-model");
   const assistantLine = JSON.stringify({
     type: "assistant",
@@ -33,11 +40,16 @@ const makeHostFirstIssueAgent = (eventsPath: string): AgentProvider => {
   });
   const resultLine = JSON.stringify({
     type: "result",
-    result: "<promise>COMPLETE</promise>",
+    result: [
+      `<${TASK_COORDINATION_RESULT_TAG}>`,
+      JSON.stringify({ proposedFollowOn }),
+      `</${TASK_COORDINATION_RESULT_TAG}>`,
+      "<promise>COMPLETE</promise>",
+    ].join("\n"),
   });
 
   return {
-    name: "github-issue-success-path-agent",
+    name: "github-issue-success-path-agent-with-proposed-follow-on",
     env: {},
     buildPrintCommand: () =>
       [
@@ -99,6 +111,40 @@ const createInMemoryGh = (options: {
       }
 
       return JSON.stringify(issue);
+    }
+
+    if (args[1] === "create") {
+      const titleIndex = args.indexOf("--title");
+      const bodyIndex = args.indexOf("--body");
+      const title = titleIndex >= 0 ? args[titleIndex + 1] : undefined;
+      const body = bodyIndex >= 0 ? args[bodyIndex + 1] : undefined;
+      const labels: string[] = [];
+
+      for (let index = 2; index < args.length; index += 2) {
+        if (args[index] === "--label" && args[index + 1]) {
+          labels.push(args[index + 1]!);
+        }
+      }
+
+      if (!title || body === undefined) {
+        throw new Error(`Unsupported gh args: ${args.join(" ")}`);
+      }
+
+      const number =
+        Math.max(0, ...options.issues.map((issue) => issue.number)) + 1;
+      const issue: InMemoryIssue = {
+        number,
+        title,
+        body,
+        state: "OPEN",
+        labels,
+        comments: [],
+        url: `https://example.test/issues/${number}`,
+      };
+
+      options.issues.push(issue);
+      issuesByNumber.set(number, issue);
+      return `${issue.url}\n`;
     }
 
     if (args[1] === "edit") {
@@ -230,6 +276,41 @@ if (normalizedArgs[1] === "view") {
   process.exit(0);
 }
 
+if (normalizedArgs[1] === "create") {
+  const titleIndex = normalizedArgs.indexOf("--title");
+  const bodyIndex = normalizedArgs.indexOf("--body");
+  const title = titleIndex >= 0 ? normalizedArgs[titleIndex + 1] : undefined;
+  const body = bodyIndex >= 0 ? normalizedArgs[bodyIndex + 1] : undefined;
+  const labels = [];
+
+  for (let index = 2; index < normalizedArgs.length; index += 2) {
+    if (normalizedArgs[index] === "--label" && normalizedArgs[index + 1]) {
+      labels.push(normalizedArgs[index + 1]);
+    }
+  }
+
+  if (!title || body === undefined) {
+    throw new Error("Unsupported gh command: " + normalizedArgs.join(" "));
+  }
+
+  const number = Math.max(0, ...store.issues.map((issue) => issue.number)) + 1;
+  const issue = {
+    number,
+    title,
+    body,
+    state: "OPEN",
+    labels,
+    comments: [],
+    url: "https://example.test/issues/" + number,
+  };
+
+  store.issues.push(issue);
+  writeStore(store);
+  log("create:" + number + ":labels=" + (labels.join(",") || "none"));
+  process.stdout.write(issue.url + "\\n");
+  process.exit(0);
+}
+
 if (normalizedArgs[1] === "comment") {
   const issueNumber = Number(normalizedArgs[2]);
   const bodyIndex = normalizedArgs.indexOf("--body");
@@ -353,6 +434,74 @@ describe("executeNextGitHubIssueTask", () => {
       reclaimedLeaseExpiresAt: "2026-04-19T00:30:00.000Z",
     });
     expect(events[2]?.leaseExpiresAt).toBeDefined();
+  });
+
+  it("creates a proposed follow-on issue from the additive result hook while still closing the current Task", async () => {
+    const issues: InMemoryIssue[] = [
+      {
+        number: 1,
+        title: "PRD: host-first Task Coordination core for GitHub Issues",
+        body: "",
+        state: "OPEN",
+        labels: [],
+        comments: [],
+        url: "https://example.test/issues/1",
+      },
+      {
+        number: 7,
+        title: "Current Task with non-blocking follow-on work",
+        body: "## Parent\n\n#1\n\n## What to build\n\nLand the current Task before Backlog Curation promotes anything else.\n",
+        state: "OPEN",
+        labels: ["ready-for-agent"],
+        comments: [],
+        url: "https://example.test/issues/7",
+      },
+    ];
+
+    const backlog = new GitHubIssueBacklog({
+      gh: createInMemoryGh({ issues }),
+    });
+    const result = await executeNextGitHubIssueTask({
+      backlog,
+      runId: "run-proposed-follow-on",
+      now: () => new Date("2026-04-19T00:00:00.000Z"),
+      executeTask: async () => ({
+        branch: "main",
+        commits: [{ sha: "commit-7" }],
+        proposedFollowOn: {
+          title: "Document the upstream promotion checkpoint",
+          body: "## What to build\n\nCapture the upstream promotion decision for the proposed Task.\n",
+        },
+      }),
+    });
+
+    expect(result.selectedTask?.issue.number).toBe(7);
+    expect(result.closed).toBe(true);
+    expect(result.proposedFollowOnTask).toMatchObject({
+      issue: {
+        number: 8,
+        title: "Document the upstream promotion checkpoint",
+        state: "OPEN",
+        labels: [],
+      },
+      parentIssueNumber: 1,
+      followOnFromIssueNumber: 7,
+      dependencies: [],
+    });
+
+    const currentIssue = issues.find((issue) => issue.number === 7)!;
+    const proposedIssue = issues.find((issue) => issue.number === 8)!;
+
+    expect(currentIssue.state).toBe("CLOSED");
+    expect(currentIssue.body).not.toContain("## Blocked by");
+    expect(proposedIssue.body).toContain("## Parent\n\n#1");
+    expect(proposedIssue.body).toContain(
+      "## Follow-on from\n\n- Follow-on from #7",
+    );
+    expect(await backlog.selectNextReadyTask()).toBeUndefined();
+
+    proposedIssue.labels.push("ready-for-agent");
+    expect((await backlog.selectNextReadyTask())?.issue.number).toBe(8);
   });
 
   it("records release for a non-landed execution instead of treating it as dependency-blocked", async () => {
@@ -550,7 +699,7 @@ describe("executeNextGitHubIssueTask", () => {
     ).toEqual(["claim", "done"]);
   });
 
-  it("claims the selected issue before host execution, lands the change, and closes the issue only after land", async () => {
+  it("claims the selected issue before host execution, can emit a proposed follow-on result tag, and still closes the current issue only after land", async () => {
     const originalCwd = process.cwd();
     const hostDir = mkdtempSync(
       join(tmpdir(), "sandcastle-github-issue-host-"),
@@ -630,7 +779,10 @@ describe("executeNextGitHubIssueTask", () => {
           expect(parentIssue?.number).toBe(1);
 
           return run({
-            agent: makeHostFirstIssueAgent(eventsPath),
+            agent: makeHostFirstIssueAgentWithProposedFollowOn(eventsPath, {
+              title: "Document the proposed follow-on Task outcome",
+              body: "## What to build\n\nCapture how Task Coordination returns proposed work to Backlog Curation.\n",
+            }),
             sandbox: noSandbox({
               env: { GIT_CONFIG_GLOBAL: globalConfigPath },
             }),
@@ -656,12 +808,26 @@ describe("executeNextGitHubIssueTask", () => {
       const store = JSON.parse(readFileSync(storePath, "utf8")) as {
         issues: Array<{
           number: number;
+          body: string;
           state: string;
+          labels: string[];
           comments: Array<{ body: string }>;
         }>;
       };
       const issue = store.issues.find((candidate) => candidate.number === 3)!;
+      const proposedIssue = store.issues.find(
+        (candidate) => candidate.number === 4,
+      )!;
       expect(issue.state).toBe("CLOSED");
+      expect(proposedIssue.state).toBe("OPEN");
+      expect(proposedIssue.labels).toEqual([]);
+
+      const normalizedProposedBody = proposedIssue.body.replaceAll("\\n", "\n");
+      expect(normalizedProposedBody).toContain("## Parent");
+      expect(normalizedProposedBody).toContain("#1");
+      expect(normalizedProposedBody).toContain("## Follow-on from");
+      expect(normalizedProposedBody).toContain("- Follow-on from #3");
+      expect(await backlog.selectNextReadyTask()).toBeUndefined();
 
       const events = issue.comments
         .map((comment) => parseTaskCoordinationComment(comment.body))
@@ -674,12 +840,19 @@ describe("executeNextGitHubIssueTask", () => {
         .filter(Boolean);
       expect(logLines).toContain("comment:3:claim");
       expect(logLines).toContain("agent-start");
+      expect(logLines).toContain("create:4:labels=none");
       expect(logLines).toContain("comment:3:done");
       expect(logLines).toContain("close:3:landed=yes");
       expect(logLines.indexOf("comment:3:claim")).toBeLessThan(
         logLines.indexOf("agent-start"),
       );
       expect(logLines.indexOf("agent-start")).toBeLessThan(
+        logLines.indexOf("create:4:labels=none"),
+      );
+      expect(logLines.indexOf("create:4:labels=none")).toBeLessThan(
+        logLines.indexOf("comment:3:done"),
+      );
+      expect(logLines.indexOf("comment:3:done")).toBeLessThan(
         logLines.indexOf("close:3:landed=yes"),
       );
     } finally {

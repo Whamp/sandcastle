@@ -13,8 +13,8 @@ interface FakeIssue {
   readonly number: number;
   readonly title: string;
   readonly body: string;
-  readonly state: "OPEN" | "CLOSED";
-  readonly labels?: readonly string[];
+  state: "OPEN" | "CLOSED";
+  labels?: string[];
   readonly comments: Array<{
     readonly body: string;
     readonly createdAt?: string;
@@ -48,6 +48,38 @@ const createFakeGh = (issues: FakeIssue[]) => {
       }
 
       return JSON.stringify(issue);
+    }
+
+    if (args[1] === "create") {
+      const titleIndex = args.indexOf("--title");
+      const bodyIndex = args.indexOf("--body");
+      const title = titleIndex >= 0 ? args[titleIndex + 1] : undefined;
+      const body = bodyIndex >= 0 ? args[bodyIndex + 1] : undefined;
+      const labels: string[] = [];
+
+      for (let index = 2; index < args.length; index += 2) {
+        if (args[index] === "--label" && args[index + 1]) {
+          labels.push(args[index + 1]!);
+        }
+      }
+
+      if (!title || body === undefined) {
+        throw new Error(`Unsupported gh args: ${args.join(" ")}`);
+      }
+
+      const number = Math.max(0, ...issues.map((issue) => issue.number)) + 1;
+      const issue: FakeIssue = {
+        number,
+        title,
+        body,
+        state: "OPEN",
+        labels,
+        comments: [],
+      };
+
+      issues.push(issue);
+      issuesByNumber.set(number, issue);
+      return `https://example.test/issues/${number}\n`;
     }
 
     throw new Error(`Unsupported gh args: ${args.join(" ")}`);
@@ -251,6 +283,63 @@ describe("GitHubIssueBacklog.selectNextReadyTask", () => {
       status: "ready",
       unresolvedDependencies: [],
     });
+  });
+
+  it("creates a proposed follow-on issue with lineage and keeps it out of ready selection until upstream promotion", async () => {
+    const issues: FakeIssue[] = [
+      {
+        number: 1,
+        title: "PRD: host-first Task Coordination core for GitHub Issues",
+        body: "",
+        state: "OPEN",
+        labels: [],
+        comments: [],
+      },
+      {
+        number: 7,
+        title: "Current Task that discovered non-blocking follow-on work",
+        body: "## Parent\n\n#1\n\n## What to build\n\nLand the current Task before curation decides on follow-on work.\n",
+        state: "OPEN",
+        labels: ["ready-for-agent"],
+        comments: [],
+      },
+    ];
+
+    const backlog = new GitHubIssueBacklog({
+      gh: createFakeGh(issues),
+    });
+    const currentTask = mapGitHubIssueToTask(issues[1]!);
+
+    const proposedFollowOnTask = await backlog.createProposedFollowOnTask({
+      currentTask,
+      followOn: {
+        title: "Document the proposed follow-on promotion flow",
+        body: "## What to build\n\nDescribe how Backlog Curation promotes proposed Tasks upstream.\n",
+      },
+    });
+
+    expect(proposedFollowOnTask).toMatchObject({
+      issue: {
+        number: 8,
+        title: "Document the proposed follow-on promotion flow",
+        state: "OPEN",
+        labels: [],
+      },
+      parentIssueNumber: 1,
+      followOnFromIssueNumber: 7,
+      dependencies: [],
+    });
+    expect(proposedFollowOnTask.issue.body).toContain("## Parent\n\n#1");
+    expect(proposedFollowOnTask.issue.body).toContain(
+      "## Follow-on from\n\n- Follow-on from #7",
+    );
+    expect(issues[1]?.body).not.toContain("## Blocked by");
+
+    issues[1]!.state = "CLOSED";
+    expect(await backlog.selectNextReadyTask()).toBeUndefined();
+
+    issues[2]!.labels?.push("ready-for-agent");
+    expect((await backlog.selectNextReadyTask())?.issue.number).toBe(8);
   });
 
   it("skips an open GitHub Issue Task after Task Coordination records done", async () => {
