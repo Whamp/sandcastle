@@ -147,11 +147,17 @@ const result = await run({
     network: "my-network",
   }),
 
+  // Host repo directory — replaces process.cwd() as the anchor for
+  // .sandcastle/ artifacts (worktrees, logs, env, patches) and git operations.
+  // Relative paths resolve against process.cwd(). Defaults to process.cwd().
+  cwd: "../other-repo",
+
   // Branch strategy — controls how the agent's changes relate to branches.
   // Defaults to { type: "head" } for bind-mount and { type: "merge-to-head" } for isolated providers.
   branchStrategy: { type: "branch", branch: "agent/fix-42" },
 
-  // Prompt source — provide one of these, not both:
+  // Prompt source — provide one of these, not both.
+  // Note: promptFile resolves against process.cwd(), NOT cwd.
   promptFile: ".sandcastle/prompt.md", // path to a prompt file
   // prompt: "Fix issue #42 in this repo", // OR an inline prompt string
 
@@ -633,8 +639,9 @@ Removes the Podman image.
 | -------------------------- | ------------------ | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `agent`                    | AgentProvider      | —                             | **Required.** Agent provider (e.g. `claudeCode("claude-opus-4-6")`, `pi("claude-sonnet-4-6")`, `codex("gpt-5.4-mini")`, `opencode("opencode/big-pickle")`) |
 | `sandbox`                  | SandboxProvider    | —                             | **Required.** Sandbox provider (e.g. `docker()`, `podman()`, `docker({ imageName: "sandcastle:local" })`)                                                  |
+| `cwd`                      | string             | `process.cwd()`               | Host repo directory — anchor for `.sandcastle/` artifacts and git operations. Relative paths resolve against `process.cwd()`.                              |
 | `prompt`                   | string             | —                             | Inline prompt (mutually exclusive with `promptFile`)                                                                                                       |
-| `promptFile`               | string             | —                             | Path to prompt file (mutually exclusive with `prompt`)                                                                                                     |
+| `promptFile`               | string             | —                             | Path to prompt file (mutually exclusive with `prompt`). Resolves against `process.cwd()`, **not** `cwd`.                                                   |
 | `maxIterations`            | number             | `1`                           | Maximum iterations to run                                                                                                                                  |
 | `hooks`                    | SandboxHooks       | —                             | Lifecycle hooks (`host.*`, `sandbox.*`)                                                                                                                    |
 | `name`                     | string             | —                             | Display name for the run, shown as a prefix in log output                                                                                                  |

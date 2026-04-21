@@ -103,6 +103,30 @@ describe("printFileDisplayStartup", () => {
     // Bold ANSI escape code
     expect(allOutput).toContain("\u001b[1m");
   });
+
+  it("prints a relative log path when hostRepoDir equals process.cwd()", () => {
+    const logPath = join(process.cwd(), ".sandcastle", "logs", "main.log");
+    printFileDisplayStartup({
+      logPath,
+      hostRepoDir: process.cwd(),
+    });
+    const allOutput = consoleSpy.mock.calls.flat().join(" ");
+    expect(allOutput).toContain("tail -f .sandcastle/logs/main.log");
+    expect(allOutput).not.toContain(process.cwd());
+  });
+
+  it("prints an absolute log path when hostRepoDir differs from process.cwd()", () => {
+    const hostRepoDir = "/some/other/repo";
+    const logPath = join(hostRepoDir, ".sandcastle", "logs", "main.log");
+    printFileDisplayStartup({
+      logPath,
+      hostRepoDir,
+    });
+    const allOutput = consoleSpy.mock.calls.flat().join(" ");
+    expect(allOutput).toContain(
+      "tail -f /some/other/repo/.sandcastle/logs/main.log",
+    );
+  });
 });
 
 describe("buildCompletionMessage", () => {
@@ -271,6 +295,25 @@ describe("RunOptions", () => {
     };
     // @ts-expect-error worktree is no longer a valid field on RunOptions
     expect(opts.worktree).toBeUndefined();
+  });
+
+  it("allows cwd to be specified", () => {
+    const opts: RunOptions = {
+      agent: claudeCode("claude-opus-4-6"),
+      sandbox: testSandbox,
+      prompt: "test",
+      cwd: "/some/repo",
+    };
+    expect(opts.cwd).toBe("/some/repo");
+  });
+
+  it("allows cwd to be omitted (defaults to process.cwd())", () => {
+    const opts: RunOptions = {
+      agent: claudeCode("claude-opus-4-6"),
+      sandbox: testSandbox,
+      prompt: "test",
+    };
+    expect(opts.cwd).toBeUndefined();
   });
 
   it("does not accept a top-level branch field", () => {
@@ -515,6 +558,39 @@ describe("buildLogFilename", () => {
     expect(buildLogFilename("main", undefined, "my review agent")).toBe(
       "main-my-review-agent.log",
     );
+  });
+});
+
+describe("promptFile resolution with cwd", () => {
+  let consoleSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    consoleSpy.mockRestore();
+  });
+
+  it("resolves relative promptFile from process.cwd(), not from cwd", async () => {
+    // ADR 0002 regression: promptFile must resolve against process.cwd()
+    // regardless of what cwd is set to. This locks in the decision so it
+    // is not accidentally reversed.
+    const cwdDir = mkdtempSync(join(tmpdir(), "sandcastle-cwd-"));
+
+    // Use a relative promptFile path that does not exist under either
+    // process.cwd() or the custom cwd. The error message must reference
+    // a resolution against process.cwd(), not cwdDir.
+    const relativePromptFile = "nonexistent-prompt-file.md";
+
+    await expect(
+      run({
+        agent: claudeCode("claude-opus-4-6"),
+        sandbox: testSandbox,
+        promptFile: relativePromptFile,
+        branchStrategy: { type: "head" },
+        cwd: cwdDir,
+      }),
+    ).rejects.toThrow(relativePromptFile);
   });
 });
 

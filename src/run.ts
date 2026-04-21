@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import path, { join } from "node:path";
 import { styleText } from "node:util";
 import { Effect, Layer } from "effect";
+import { resolveCwd } from "./resolveCwd.js";
 import type { AgentProvider } from "./AgentProvider.js";
 import {
   ClackDisplay,
@@ -43,6 +44,11 @@ export interface FileDisplayStartupOptions {
   readonly logPath: string;
   readonly agentName?: string;
   readonly branch?: string;
+  /** Resolved host repo directory. When it differs from `process.cwd()`, the
+   *  log-file hint is printed as an absolute path so it can be pasted into any
+   *  terminal. When it equals `process.cwd()` (or is omitted), a relative path
+   *  is printed instead. */
+  readonly hostRepoDir?: string;
 }
 
 /**
@@ -55,9 +61,13 @@ export const printFileDisplayStartup = (
   const name = options.agentName ?? "Agent";
   const label = styleText("bold", `[${name}]`);
   const branchPart = options.branch ? ` on branch ${options.branch}` : "";
-  const relativeLogPath = path.relative(process.cwd(), options.logPath);
+  const hostRepoDir = options.hostRepoDir ?? process.cwd();
+  const displayLogPath =
+    hostRepoDir === process.cwd()
+      ? path.relative(process.cwd(), options.logPath)
+      : options.logPath;
   console.log(`${label} Started${branchPart}`);
-  console.log(styleText("dim", `  tail -f ${relativeLogPath}`));
+  console.log(styleText("dim", `  tail -f ${displayLogPath}`));
 };
 
 /**
@@ -141,9 +151,25 @@ export interface RunOptions {
   readonly agent: AgentProvider;
   /** Sandbox provider (e.g. docker({ imageName: "sandcastle:myrepo" })). */
   readonly sandbox: SandboxProvider;
+  /**
+   * Host repo directory. Replaces `process.cwd()` as the anchor for
+   * `.sandcastle/worktrees/`, `.sandcastle/.env`, `.sandcastle/logs/`,
+   * `.sandcastle/patches/`, and git operations.
+   *
+   * - Relative paths are resolved against `process.cwd()`.
+   * - Absolute paths are used as-is.
+   * - Defaults to `process.cwd()` when omitted.
+   */
+  readonly cwd?: string;
   /** Inline prompt string (mutually exclusive with promptFile) */
   readonly prompt?: string;
-  /** Path to a prompt file (mutually exclusive with prompt) */
+  /**
+   * Path to a prompt file (mutually exclusive with prompt).
+   *
+   * **Note:** `promptFile` is always resolved against `process.cwd()`, not
+   * against the `cwd` option. If you set a custom `cwd`, pass an absolute
+   * `promptFile` to avoid ambiguity.
+   */
   readonly promptFile?: string;
   /** Maximum iterations to run (default: 1) */
   readonly maxIterations?: number;
@@ -237,7 +263,9 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
   const branch: string | undefined =
     branchStrategy.type === "branch" ? branchStrategy.branch : undefined;
 
-  const hostRepoDir = process.cwd();
+  const hostRepoDir = await Effect.runPromise(
+    resolveCwd(options.cwd).pipe(Effect.provide(NodeContext.layer)),
+  );
 
   // Validate: resumeSession file must exist on the host
   if (options.resumeSession) {
@@ -304,6 +332,7 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
             logPath: resolvedLogging.path,
             agentName: options.name,
             branch: resolvedBranch,
+            hostRepoDir,
           });
           return Layer.provide(
             FileDisplay.layer(resolvedLogging.path),

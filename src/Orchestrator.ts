@@ -19,6 +19,9 @@ import {
 } from "./SessionStore.js";
 import { SessionPaths } from "./SessionPaths.js";
 
+/** Sandbox-side Claude Code projects directory (fixed convention). */
+const SANDBOX_PROJECTS_DIR = "/home/agent/.claude/projects";
+
 export type { ParsedStreamEvent } from "./AgentProvider.js";
 
 const IDLE_WARNING_INTERVAL_MS = 60_000;
@@ -226,7 +229,7 @@ export const orchestrate = (
                   const sbStore = sandboxSessionStore(
                     ctx.sandboxRepoDir,
                     bindMountHandle,
-                    sandboxProjectsDir,
+                    SANDBOX_PROJECTS_DIR,
                   );
                   const hStore = hostSessionStore(hostRepoDir, hostProjectsDir);
                   yield* Effect.tryPromise({
@@ -293,7 +296,7 @@ export const orchestrate = (
                   const sbStore = sandboxSessionStore(
                     ctx.sandboxRepoDir,
                     bindMountHandle,
-                    sandboxProjectsDir,
+                    SANDBOX_PROJECTS_DIR,
                   );
                   const hStore = hostSessionStore(hostRepoDir, hostProjectsDir);
                   yield* Effect.tryPromise({
