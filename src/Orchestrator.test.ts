@@ -28,14 +28,16 @@ import type { DockerError, SandboxError } from "./errors.js";
 import { AgentIdleTimeoutError } from "./errors.js";
 import { SandboxFactory } from "./SandboxFactory.js";
 import { encodeProjectPath } from "./SessionStore.js";
+import { defaultSessionPathsLayer, sessionPathsLayer } from "./SessionPaths.js";
 import type { BindMountSandboxHandle } from "./SandboxProvider.js";
 
 const execAsync = promisify(exec);
 
 const testProvider = claudeCode("test-model");
 
-const testDisplayLayer = SilentDisplay.layer(
-  Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]),
+const testDisplayLayer = Layer.merge(
+  SilentDisplay.layer(Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([])),
+  defaultSessionPathsLayer,
 );
 
 const initRepo = async (dir: string) => {
@@ -1107,7 +1109,13 @@ describe("Orchestrator tool call display integration", () => {
         iterations: 1,
         prompt: "do some work",
       }).pipe(
-        Effect.provide(Layer.merge(mockLayer.factoryLayer, displayLayer)),
+        Effect.provide(
+          Layer.mergeAll(
+            mockLayer.factoryLayer,
+            displayLayer,
+            defaultSessionPathsLayer,
+          ),
+        ),
       ),
     );
 
@@ -1346,20 +1354,20 @@ describe("Orchestrator error handling", () => {
     expect(exit._tag).toBe("Failure");
   });
 
-  it("propagates error when getSandboxHead fails (empty repo)", async () => {
+  it("propagates error when sandbox branch resolution fails", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "orch-nohead-host-"));
 
     await initRepo(hostDir);
     await commitFile(hostDir, "hello.txt", "hello", "initial commit");
 
-    // Layer that sabotages HEAD resolution by making git rev-parse HEAD always fail
+    // Layer that sabotages branch resolution in the sandbox
     const { factoryLayer, sandboxRepoDir } = makeTestSandboxFactory(
       hostDir,
       (dir) => {
         const fsLayer = makeLocalSandboxLayer(dir);
         return Layer.succeed(Sandbox, {
           exec: (command, options) => {
-            if (command === "git rev-parse HEAD") {
+            if (command === "git rev-parse --abbrev-ref HEAD") {
               return Effect.succeed({
                 stdout: "",
                 stderr: "fatal: ambiguous argument 'HEAD'",
@@ -1756,7 +1764,11 @@ describe("Orchestrator Display integration", () => {
 
         iterations: 5,
         prompt: "do some work",
-      }).pipe(Effect.provide(Layer.merge(factoryLayer, displayLayer))),
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(factoryLayer, displayLayer, defaultSessionPathsLayer),
+        ),
+      ),
     );
 
     const entries = await Effect.runPromise(Ref.get(ref));
@@ -1819,7 +1831,11 @@ describe("Orchestrator Display integration", () => {
 
         iterations: 2,
         prompt: "do some work",
-      }).pipe(Effect.provide(Layer.merge(factoryLayer, displayLayer))),
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(factoryLayer, displayLayer, defaultSessionPathsLayer),
+        ),
+      ),
     );
 
     const entries = await Effect.runPromise(Ref.get(ref));
@@ -1893,7 +1909,11 @@ describe("Orchestrator Display integration", () => {
         iterations: 1,
         prompt: "do some work",
         name: "issue-42",
-      }).pipe(Effect.provide(Layer.merge(factoryLayer, displayLayer))),
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(factoryLayer, displayLayer, defaultSessionPathsLayer),
+        ),
+      ),
     );
 
     const entries = await Effect.runPromise(Ref.get(ref));
@@ -1933,7 +1953,11 @@ describe("Orchestrator Display integration", () => {
 
         iterations: 1,
         prompt: "do some work",
-      }).pipe(Effect.provide(Layer.merge(factoryLayer, displayLayer))),
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(factoryLayer, displayLayer, defaultSessionPathsLayer),
+        ),
+      ),
     );
 
     const entries = await Effect.runPromise(Ref.get(ref));
@@ -2179,7 +2203,9 @@ describe("Orchestrator Display integration", () => {
         idleTimeoutSeconds: 10, // high enough not to kill
         _idleWarningIntervalMs: 100, // fire warnings every 100ms for testing
       }).pipe(
-        Effect.provide(Layer.merge(factoryLayer, displayLayer)),
+        Effect.provide(
+          Layer.mergeAll(factoryLayer, displayLayer, defaultSessionPathsLayer),
+        ),
         Effect.exit,
       ),
     );
@@ -2270,7 +2296,9 @@ describe("Orchestrator Display integration", () => {
         idleTimeoutSeconds: 10,
         _idleWarningIntervalMs: 100,
       }).pipe(
-        Effect.provide(Layer.merge(factoryLayer, displayLayer)),
+        Effect.provide(
+          Layer.mergeAll(factoryLayer, displayLayer, defaultSessionPathsLayer),
+        ),
         Effect.exit,
       ),
     );
@@ -2516,7 +2544,11 @@ describe("Orchestrator with pi provider", () => {
 
         iterations: 1,
         prompt: "do some work",
-      }).pipe(Effect.provide(Layer.merge(factoryLayer, displayLayer))),
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(factoryLayer, displayLayer, defaultSessionPathsLayer),
+        ),
+      ),
     );
 
     const entries = await Effect.runPromise(Ref.get(ref));
@@ -2600,7 +2632,11 @@ describe("Orchestrator with pi provider", () => {
 
         iterations: 1,
         prompt: "do some work",
-      }).pipe(Effect.provide(Layer.merge(factoryLayer, displayLayer))),
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(factoryLayer, displayLayer, defaultSessionPathsLayer),
+        ),
+      ),
     );
 
     const entries = await Effect.runPromise(Ref.get(ref));
@@ -2865,6 +2901,9 @@ describe("Session capture integration", () => {
     const hostProjectsDir = await mkdtemp(
       join(tmpdir(), "orch-capture-projects-"),
     );
+    const sandboxProjectsDir = await mkdtemp(
+      join(tmpdir(), "orch-capture-sb-projects-"),
+    );
     const mockSessionId = "test-session-abc-123";
 
     await initRepo(hostDir);
@@ -2875,7 +2914,7 @@ describe("Session capture integration", () => {
       async (repoDir) => {
         // Write a session JSONL file into the sandbox's session store location
         const encoded = encodeProjectPath(repoDir);
-        const sessionsDir = join("/home/agent", ".claude", "projects", encoded);
+        const sessionsDir = join(sandboxProjectsDir, encoded);
         // Since our sandbox IS the filesystem, write the session file at the
         // expected sandbox path (the handle's copyFileOut will just do a fs copy)
         await mkdir(sessionsDir, { recursive: true });
@@ -2898,8 +2937,15 @@ describe("Session capture integration", () => {
         hostRepoDir: hostDir,
         iterations: 1,
         prompt: "do some work",
-        _hostProjectsDir: hostProjectsDir,
-      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            factoryLayer,
+            testDisplayLayer,
+            sessionPathsLayer({ hostProjectsDir, sandboxProjectsDir }),
+          ),
+        ),
+      ),
     );
 
     // Verify iteration result
@@ -2981,6 +3027,9 @@ describe("Session capture integration", () => {
     const hostProjectsDir = await mkdtemp(
       join(tmpdir(), "orch-resume-projects-"),
     );
+    const sandboxProjectsDir = await mkdtemp(
+      join(tmpdir(), "orch-resume-sb-projects-"),
+    );
     const mockSessionId = "resume-session-xyz";
 
     await initRepo(hostDir);
@@ -3004,9 +3053,7 @@ describe("Session capture integration", () => {
         // Verify that the session JSONL was transferred into the sandbox
         const sbEncoded = encodeProjectPath(repoDir);
         const sbSessionPath = join(
-          "/home/agent",
-          ".claude",
-          "projects",
+          sandboxProjectsDir,
           sbEncoded,
           `${mockSessionId}.jsonl`,
         );
@@ -3017,12 +3064,7 @@ describe("Session capture integration", () => {
         expect(firstEntry.cwd).toBe(repoDir);
 
         // Also write the new session file the agent would produce
-        const sessionsDir = join(
-          "/home/agent",
-          ".claude",
-          "projects",
-          sbEncoded,
-        );
+        const sessionsDir = join(sandboxProjectsDir, sbEncoded);
         await mkdir(sessionsDir, { recursive: true });
         await writeFile(
           join(sessionsDir, `${mockSessionId}.jsonl`),
@@ -3047,9 +3089,16 @@ describe("Session capture integration", () => {
         hostRepoDir: hostDir,
         iterations: 1,
         prompt: "continue working",
-        _hostProjectsDir: hostProjectsDir,
         resumeSession: mockSessionId,
-      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            factoryLayer,
+            testDisplayLayer,
+            sessionPathsLayer({ hostProjectsDir, sandboxProjectsDir }),
+          ),
+        ),
+      ),
     );
 
     // Verify iteration result

@@ -12,6 +12,7 @@ import {
 import { resolveEnv } from "./EnvResolver.js";
 import { mergeProviderEnv } from "./mergeProviderEnv.js";
 import { orchestrate, type IterationResult } from "./Orchestrator.js";
+import { defaultSessionPathsLayer } from "./SessionPaths.js";
 import {
   type PromptArgs,
   substitutePromptArgs,
@@ -256,7 +257,11 @@ const buildSandboxHandle = (
           ) as any,
       });
 
-      const runLayer = Layer.merge(reuseFactoryLayer, runDisplayLayer);
+      const runLayer = Layer.mergeAll(
+        reuseFactoryLayer,
+        runDisplayLayer,
+        defaultSessionPathsLayer,
+      );
 
       const result = await Effect.runPromise(
         Effect.gen(function* () {

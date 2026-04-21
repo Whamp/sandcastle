@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import { Deferred, Effect } from "effect";
 import { Display } from "./Display.js";
 import { preprocessPrompt } from "./PromptPreprocessor.js";
@@ -18,6 +17,7 @@ import {
   sandboxSessionStore,
   transferSession,
 } from "./SessionStore.js";
+import { SessionPaths } from "./SessionPaths.js";
 
 export type { ParsedStreamEvent } from "./AgentProvider.js";
 
@@ -145,8 +145,6 @@ export interface OrchestrateOptions {
   readonly name?: string;
   /** @internal Test-only override for the idle warning interval in milliseconds. Default: 60000 (1 minute). */
   readonly _idleWarningIntervalMs?: number;
-  /** @internal Override for the host projects directory (for testing). */
-  readonly _hostProjectsDir?: string;
   /** Resume a prior Claude Code session by ID. Applied to iteration 1 only. */
   readonly resumeSession?: string;
 }
@@ -173,12 +171,17 @@ export interface OrchestrateResult {
 
 export const orchestrate = (
   options: OrchestrateOptions,
-): Effect.Effect<OrchestrateResult, SandboxError, SandboxFactory | Display> => {
+): Effect.Effect<
+  OrchestrateResult,
+  SandboxError,
+  SandboxFactory | Display | SessionPaths
+> => {
   const idleTimeoutMs =
     (options.idleTimeoutSeconds ?? DEFAULT_IDLE_TIMEOUT_SECONDS) * 1000;
   return Effect.gen(function* () {
     const factory = yield* SandboxFactory;
     const display = yield* Display;
+    const { hostProjectsDir, sandboxProjectsDir } = yield* SessionPaths;
     const { hostRepoDir, iterations, hooks, prompt, branch, provider } =
       options;
     let completionSignals: string[];
@@ -215,13 +218,6 @@ export const orchestrate = (
             },
             (ctx) =>
               Effect.gen(function* () {
-                // Shared sandbox session infrastructure for resume + capture
-                const sandboxProjectsDir = join(
-                  "/home/agent",
-                  ".claude",
-                  "projects",
-                );
-
                 // Resume session: transfer JSONL from host to sandbox before iteration 1
                 const iterationResumeSession =
                   i === 1 ? options.resumeSession : undefined;
@@ -232,10 +228,7 @@ export const orchestrate = (
                     bindMountHandle,
                     sandboxProjectsDir,
                   );
-                  const hStore = hostSessionStore(
-                    hostRepoDir,
-                    options._hostProjectsDir,
-                  );
+                  const hStore = hostSessionStore(hostRepoDir, hostProjectsDir);
                   yield* Effect.tryPromise({
                     try: () =>
                       transferSession(hStore, sbStore, iterationResumeSession),
@@ -302,10 +295,7 @@ export const orchestrate = (
                     bindMountHandle,
                     sandboxProjectsDir,
                   );
-                  const hStore = hostSessionStore(
-                    hostRepoDir,
-                    options._hostProjectsDir,
-                  );
+                  const hStore = hostSessionStore(hostRepoDir, hostProjectsDir);
                   yield* Effect.tryPromise({
                     try: () => transferSession(sbStore, hStore, sessionId),
                     catch: (e) =>

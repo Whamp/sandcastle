@@ -23,6 +23,7 @@ import type { SandboxError } from "./errors.js";
 import type { SandboxHooks } from "./SandboxLifecycle.js";
 import { mergeProviderEnv } from "./mergeProviderEnv.js";
 import { hostSessionStore } from "./SessionStore.js";
+import { defaultSessionPathsLayer } from "./SessionPaths.js";
 import { generateTempBranchName, getCurrentBranch } from "./WorktreeManager.js";
 import {
   type PromptArgs,
@@ -329,7 +330,11 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
     ),
   );
 
-  const runLayer = Layer.merge(factoryLayer, displayLayer);
+  const runLayer = Layer.mergeAll(
+    factoryLayer,
+    displayLayer,
+    defaultSessionPathsLayer,
+  );
 
   const baseEffect = Effect.gen(function* () {
     const d = yield* Display;
