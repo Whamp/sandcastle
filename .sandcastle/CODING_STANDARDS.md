@@ -52,7 +52,7 @@ type Example = {
 };
 ```
 
-Instead, create a config layer using Effect for that function, then instantiate that differently in tests and in production. This helps keep the code cleaner.
+Instead, create a config layer using Effect for that function, then instantiate that differently in tests and in production. This helps keep the code cleaner. Don't make this layer optional - that adds more indirection to all layers of the code.
 
 ---
 
