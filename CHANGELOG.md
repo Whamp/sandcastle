@@ -1,5 +1,12 @@
 # @ai-hero/sandcastle
 
+## 0.5.1
+
+### Patch Changes
+
+- ba6121e: Add a `cwd` option to `createSandbox()`, `createWorktree()`, `run()`, and `interactive()`. When provided, `cwd` replaces `process.cwd()` as the host repo directory used for worktrees, `.sandcastle/.env`, logs, patches, and git operations, letting you drive Sandcastle from outside the target repo. Relative paths resolve against `process.cwd()`; absolute paths pass through. A `CwdError` is raised when the path does not exist or is not a directory.
+- f872268: Fix session capture, which always failed with "Could not find the file". Sandcastle was looking for session JSONLs under a `sessions/` subdirectory that Claude Code does not actually use.
+
 ## 0.5.0
 
 ### Minor Changes
