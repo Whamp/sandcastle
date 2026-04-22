@@ -11,7 +11,11 @@ import {
   FileDisplay,
   type Severity,
 } from "./Display.js";
-import { orchestrate, type IterationResult } from "./Orchestrator.js";
+import {
+  orchestrate,
+  type IterationResult,
+  type OrchestrateResult,
+} from "./Orchestrator.js";
 import { resolvePrompt } from "./PromptResolver.js";
 import {
   WorktreeDockerSandboxFactory,
@@ -192,6 +196,18 @@ export interface RunOptions {
   readonly branchStrategy?: BranchStrategy;
   /** Resume a prior Claude Code session by ID. The session JSONL must exist on the host. Incompatible with maxIterations > 1. */
   readonly resumeSession?: string;
+  /**
+   * An `AbortSignal` that cancels the run when aborted.
+   *
+   * - If `signal.aborted` is already `true` at entry, `run()` rejects
+   *   immediately without doing any setup work.
+   * - Aborting mid-iteration kills the in-flight agent subprocess.
+   * - Phase boundaries (between iterations) also check the signal.
+   * - The rejected promise surfaces `signal.reason` via
+   *   `signal.throwIfAborted()` — no Sandcastle-specific wrapping.
+   * - The worktree is preserved on disk after abort (error-path behavior).
+   */
+  readonly signal?: AbortSignal;
 }
 
 export type { IterationResult } from "./Orchestrator.js";
@@ -214,6 +230,9 @@ export interface RunResult {
 }
 
 export const run = async (options: RunOptions): Promise<RunResult> => {
+  // If signal is already aborted, reject immediately without any setup
+  options.signal?.throwIfAborted();
+
   const {
     prompt,
     promptFile,
@@ -409,6 +428,7 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
       idleTimeoutSeconds: options.idleTimeoutSeconds,
       name: options.name,
       resumeSession: options.resumeSession,
+      signal: options.signal,
     });
 
     const completion = buildCompletionMessage(
@@ -438,9 +458,16 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
         )
       : baseEffect;
 
-  const result = await Effect.runPromise(
-    withErrorLog.pipe(Effect.provide(runLayer)),
-  );
+  let result: OrchestrateResult;
+  try {
+    result = await Effect.runPromise(
+      withErrorLog.pipe(Effect.provide(runLayer)),
+    );
+  } catch (error: unknown) {
+    // If the signal was aborted, surface its reason verbatim (no wrapping)
+    options.signal?.throwIfAborted();
+    throw error;
+  }
 
   return {
     ...result,

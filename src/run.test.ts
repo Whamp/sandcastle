@@ -337,6 +337,60 @@ describe("RunOptions", () => {
   });
 });
 
+describe("signal (AbortSignal)", () => {
+  it("allows signal to be specified on RunOptions", () => {
+    const ac = new AbortController();
+    const opts: RunOptions = {
+      agent: claudeCode("claude-opus-4-6"),
+      sandbox: testSandbox,
+      prompt: "test",
+      signal: ac.signal,
+    };
+    expect(opts.signal).toBe(ac.signal);
+  });
+
+  it("allows signal to be omitted", () => {
+    const opts: RunOptions = {
+      agent: claudeCode("claude-opus-4-6"),
+      sandbox: testSandbox,
+      prompt: "test",
+    };
+    expect(opts.signal).toBeUndefined();
+  });
+
+  it("rejects immediately with pre-aborted signal without doing setup", async () => {
+    const ac = new AbortController();
+    ac.abort("cancelled before start");
+    await expect(
+      run({
+        agent: claudeCode("claude-opus-4-6"),
+        sandbox: testSandbox,
+        prompt: "test",
+        branchStrategy: { type: "head" },
+        signal: ac.signal,
+      }),
+    ).rejects.toThrow("cancelled before start");
+  });
+
+  it("surfaces signal.reason verbatim (no wrapping)", async () => {
+    const reason = new DOMException("user cancelled", "AbortError");
+    const ac = new AbortController();
+    ac.abort(reason);
+    try {
+      await run({
+        agent: claudeCode("claude-opus-4-6"),
+        sandbox: testSandbox,
+        prompt: "test",
+        branchStrategy: { type: "head" },
+        signal: ac.signal,
+      });
+      expect.unreachable("should have thrown");
+    } catch (err) {
+      expect(err).toBe(reason);
+    }
+  });
+});
+
 describe("resumeSession validation", () => {
   it("throws when resumeSession is set with maxIterations > 1", async () => {
     await expect(

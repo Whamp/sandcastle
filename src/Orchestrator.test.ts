@@ -3114,3 +3114,156 @@ describe("Session capture integration", () => {
     expect(entry.cwd).toBe(hostDir);
   });
 });
+
+describe("Orchestrator signal (AbortSignal)", () => {
+  it("rejects with pre-aborted signal before running any iteration", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-host-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    let agentCalled = false;
+    const { factoryLayer } = makeTestSandboxFactory(hostDir, (dir) =>
+      makeMockAgentLayer(dir, async () => {
+        agentCalled = true;
+        return "Done.";
+      }),
+    );
+
+    const ac = new AbortController();
+    ac.abort("pre-aborted");
+
+    await expect(
+      Effect.runPromise(
+        orchestrate({
+          provider: testProvider,
+          hostRepoDir: hostDir,
+          iterations: 1,
+          prompt: "do some work",
+          signal: ac.signal,
+        }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
+      ),
+    ).rejects.toThrow("pre-aborted");
+
+    expect(agentCalled).toBe(false);
+  });
+
+  it("aborts mid-iteration and rejects", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-host-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    const ac = new AbortController();
+
+    // Mock agent that takes a while — abort fires while it's running
+    const { factoryLayer } = makeTestSandboxFactory(hostDir, (dir) =>
+      makeMockAgentLayer(dir, async () => {
+        // Simulate slow agent: abort mid-flight
+        ac.abort("cancelled mid-iteration");
+        // Give the abort a tick to propagate
+        await new Promise((r) => setTimeout(r, 10));
+        return "Done.";
+      }),
+    );
+
+    await expect(
+      Effect.runPromise(
+        orchestrate({
+          provider: testProvider,
+          hostRepoDir: hostDir,
+          iterations: 1,
+          prompt: "do some work",
+          signal: ac.signal,
+        }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
+      ),
+    ).rejects.toThrow("cancelled mid-iteration");
+  });
+
+  it("aborts between iterations and does not start the next one", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-host-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    const ac = new AbortController();
+    let iterationCount = 0;
+
+    const { factoryLayer } = makeTestSandboxFactory(hostDir, (dir) =>
+      makeMockAgentLayer(dir, async () => {
+        iterationCount++;
+        if (iterationCount === 1) {
+          // After first iteration completes, abort before second starts
+          ac.abort("cancelled between iterations");
+        }
+        return `Iteration ${iterationCount} done.`;
+      }),
+    );
+
+    await expect(
+      Effect.runPromise(
+        orchestrate({
+          provider: testProvider,
+          hostRepoDir: hostDir,
+          iterations: 5,
+          prompt: "do some work",
+          signal: ac.signal,
+        }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
+      ),
+    ).rejects.toThrow("cancelled between iterations");
+
+    expect(iterationCount).toBe(1);
+  });
+
+  it("abort after completion is a no-op", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-host-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    const ac = new AbortController();
+
+    const { factoryLayer } = makeTestSandboxFactory(hostDir, (dir) =>
+      makeMockAgentLayer(dir, async () => {
+        return "All done. <promise>COMPLETE</promise>";
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      orchestrate({
+        provider: testProvider,
+        hostRepoDir: hostDir,
+        iterations: 1,
+        prompt: "do some work",
+        signal: ac.signal,
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
+    );
+
+    // Abort after completion — should not throw or affect result
+    ac.abort("too late");
+
+    expect(result.iterations.length).toBe(1);
+    expect(result.completionSignal).toBe("<promise>COMPLETE</promise>");
+  });
+
+  it("works normally when no signal is provided", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-host-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    const { factoryLayer } = makeTestSandboxFactory(hostDir, (dir) =>
+      makeMockAgentLayer(dir, async () => {
+        return "Done. <promise>COMPLETE</promise>";
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      orchestrate({
+        provider: testProvider,
+        hostRepoDir: hostDir,
+        iterations: 1,
+        prompt: "do some work",
+        // no signal
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
+    );
+
+    expect(result.iterations.length).toBe(1);
+    expect(result.completionSignal).toBe("<promise>COMPLETE</promise>");
+  });
+});

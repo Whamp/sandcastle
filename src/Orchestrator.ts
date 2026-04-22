@@ -37,6 +37,7 @@ const invokeAgent = (
   onIdleWarning: (minutes: number) => void,
   idleWarningIntervalMs: number = IDLE_WARNING_INTERVAL_MS,
   resumeSession?: string,
+  signal?: AbortSignal,
 ): Effect.Effect<{ result: string; sessionId?: string }, SandboxError> =>
   Effect.gen(function* () {
     let resultText = "";
@@ -75,6 +76,23 @@ const invokeAgent = (
       // Reset warning interval on activity
       startWarningInterval();
     };
+
+    // Deferred that will be resolved (as a defect) when the AbortSignal fires.
+    // Uses Effect.die so the abort reason propagates as-is to run().
+    const abortDeferred = yield* Deferred.make<never, never>();
+    let abortCleanup: (() => void) | null = null;
+    if (signal) {
+      if (signal.aborted) {
+        return yield* Effect.die(signal.reason);
+      }
+      const onAbort = () => {
+        Effect.runPromise(Deferred.die(abortDeferred, signal.reason)).catch(
+          () => {},
+        );
+      };
+      signal.addEventListener("abort", onAbort, { once: true });
+      abortCleanup = () => signal.removeEventListener("abort", onAbort);
+    }
 
     resetIdleTimer();
 
@@ -128,7 +146,21 @@ const invokeAgent = (
       ),
     );
 
-    return yield* Effect.raceFirst(execEffect, Deferred.await(timeoutSignal));
+    let raced = Effect.raceFirst(execEffect, Deferred.await(timeoutSignal));
+    if (signal) {
+      raced = Effect.raceFirst(
+        raced,
+        Deferred.await(abortDeferred) as Effect.Effect<never, never>,
+      );
+    }
+
+    return yield* raced.pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          abortCleanup?.();
+        }),
+      ),
+    );
   });
 
 const DEFAULT_COMPLETION_SIGNAL = "<promise>COMPLETE</promise>";
@@ -150,6 +182,8 @@ export interface OrchestrateOptions {
   readonly _idleWarningIntervalMs?: number;
   /** Resume a prior Claude Code session by ID. Applied to iteration 1 only. */
   readonly resumeSession?: string;
+  /** An AbortSignal that cancels the orchestration when aborted. */
+  readonly signal?: AbortSignal;
 }
 
 /** Per-iteration result carrying an optional session ID. */
@@ -205,7 +239,13 @@ export const orchestrate = (
     let resolvedBranch = "";
     let iterationPreservedPath: string | undefined;
 
+    // Helper: check abort signal and bail via defect so run() can
+    // re-throw the signal's reason verbatim (no Sandcastle wrapping).
+    const checkAbort = (): Effect.Effect<void> =>
+      options.signal?.aborted ? Effect.die(options.signal.reason) : Effect.void;
+
     for (let i = 1; i <= iterations; i++) {
+      yield* checkAbort();
       yield* display.status(label(`Iteration ${i}/${iterations}`), "info");
 
       const sandboxResult = yield* factory.withSandbox(
@@ -282,6 +322,7 @@ export const orchestrate = (
                   onIdleWarning,
                   options._idleWarningIntervalMs,
                   iterationResumeSession,
+                  options.signal,
                 );
 
                 // Flush any remaining buffered text deltas
