@@ -210,7 +210,7 @@ export interface RunOptions {
   readonly signal?: AbortSignal;
 }
 
-export type { IterationResult } from "./Orchestrator.js";
+export type { IterationResult, IterationUsage } from "./Orchestrator.js";
 
 export interface RunResult {
   /** Per-iteration results (use `iterations.length` for the count). */

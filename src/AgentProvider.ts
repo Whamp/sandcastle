@@ -86,6 +86,14 @@ export interface PrintCommand {
   readonly stdin?: string;
 }
 
+/** Per-iteration token usage snapshot extracted from the agent session. */
+export interface IterationUsage {
+  readonly inputTokens: number;
+  readonly cacheCreationInputTokens: number;
+  readonly cacheReadInputTokens: number;
+  readonly outputTokens: number;
+}
+
 export interface AgentProvider {
   readonly name: string;
   /** Environment variables injected by this agent provider. Merged at launch time with env resolver and sandbox provider env. */
@@ -95,6 +103,8 @@ export interface AgentProvider {
   buildPrintCommand(options: AgentCommandOptions): PrintCommand;
   buildInteractiveArgs?(options: AgentCommandOptions): string[];
   parseStreamLine(line: string): ParsedStreamEvent[];
+  /** Parse token usage from the captured session JSONL content. Only implemented by Claude Code. */
+  parseSessionUsage?(content: string): IterationUsage | undefined;
 }
 
 export const DEFAULT_MODEL = "claude-opus-4-6";
@@ -346,5 +356,35 @@ export const claudeCode = (
 
   parseStreamLine(line: string): ParsedStreamEvent[] {
     return parseStreamJsonLine(line);
+  },
+
+  parseSessionUsage(content: string): IterationUsage | undefined {
+    const lines = content.split("\n");
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i]!;
+      if (!line.startsWith("{")) continue;
+      try {
+        const obj = JSON.parse(line);
+        if (obj.type === "assistant" && obj.message?.usage) {
+          const u = obj.message.usage;
+          if (
+            typeof u.input_tokens === "number" &&
+            typeof u.cache_creation_input_tokens === "number" &&
+            typeof u.cache_read_input_tokens === "number" &&
+            typeof u.output_tokens === "number"
+          ) {
+            return {
+              inputTokens: u.input_tokens,
+              cacheCreationInputTokens: u.cache_creation_input_tokens,
+              cacheReadInputTokens: u.cache_read_input_tokens,
+              outputTokens: u.output_tokens,
+            };
+          }
+        }
+      } catch {
+        // Not valid JSON — skip
+      }
+    }
+    return undefined;
   },
 });

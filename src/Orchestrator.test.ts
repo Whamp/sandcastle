@@ -3105,6 +3105,103 @@ describe("Session capture integration", () => {
     const entry = JSON.parse(capturedLines[0]!) as { cwd: string };
     expect(entry.cwd).toBe(hostDir);
   });
+
+  it("populates usage on IterationResult when session has assistant usage", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-usage-host-"));
+    const hostProjectsDir = await mkdtemp(
+      join(tmpdir(), "orch-usage-projects-"),
+    );
+    const sandboxProjectsDir = await mkdtemp(
+      join(tmpdir(), "orch-usage-sb-projects-"),
+    );
+    const mockSessionId = "usage-session-123";
+
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    const { factoryLayer } = makeSessionCaptureFactory(
+      hostDir,
+      async (repoDir) => {
+        const encoded = encodeProjectPath(repoDir);
+        const sessionsDir = join(sandboxProjectsDir, encoded);
+        await mkdir(sessionsDir, { recursive: true });
+        await writeFile(
+          join(sessionsDir, `${mockSessionId}.jsonl`),
+          [
+            JSON.stringify({
+              type: "system",
+              subtype: "init",
+              session_id: mockSessionId,
+            }),
+            JSON.stringify({
+              type: "assistant",
+              message: {
+                model: "claude-opus-4-6",
+                usage: {
+                  input_tokens: 3,
+                  cache_creation_input_tokens: 9294,
+                  cache_read_input_tokens: 8526,
+                  output_tokens: 458,
+                },
+              },
+            }),
+          ].join("\n"),
+        );
+        return "Done. <promise>COMPLETE</promise>";
+      },
+      mockSessionId,
+    );
+
+    const result = await Effect.runPromise(
+      orchestrate({
+        provider: testProvider,
+        hostRepoDir: hostDir,
+        iterations: 1,
+        prompt: "do some work",
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            factoryLayer,
+            testDisplayLayer,
+            sessionPathsLayer({ hostProjectsDir, sandboxProjectsDir }),
+          ),
+        ),
+      ),
+    );
+
+    expect(result.iterations[0]!.usage).toEqual({
+      inputTokens: 3,
+      cacheCreationInputTokens: 9294,
+      cacheReadInputTokens: 8526,
+      outputTokens: 458,
+    });
+  });
+
+  it("usage is undefined when captureSessions is false", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "orch-nousage-host-"));
+
+    await initRepo(hostDir);
+    await commitFile(hostDir, "hello.txt", "hello", "initial commit");
+
+    const provider = claudeCode("test-model", { captureSessions: false });
+
+    const { factoryLayer } = makeTestSandboxFactory(hostDir, (dir) =>
+      makeMockAgentLayer(dir, async () => {
+        return "Done.";
+      }),
+    );
+
+    const result = await Effect.runPromise(
+      orchestrate({
+        provider,
+        hostRepoDir: hostDir,
+        iterations: 1,
+        prompt: "do some work",
+      }).pipe(Effect.provide(Layer.merge(factoryLayer, testDisplayLayer))),
+    );
+
+    expect(result.iterations[0]!.usage).toBeUndefined();
+  });
 });
 
 describe("Orchestrator signal (AbortSignal)", () => {

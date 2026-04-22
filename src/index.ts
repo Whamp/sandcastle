@@ -4,6 +4,7 @@ export type {
   RunResult,
   LoggingOption,
   IterationResult,
+  IterationUsage,
 } from "./run.js";
 export { interactive } from "./interactive.js";
 export type { InteractiveOptions, InteractiveResult } from "./interactive.js";

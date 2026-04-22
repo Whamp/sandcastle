@@ -694,6 +694,111 @@ describe("resumeSession on non-Claude providers", () => {
   });
 });
 
+describe("parseSessionUsage (Claude Code)", () => {
+  const provider = claudeCode("claude-opus-4-6");
+
+  it("extracts usage from the last assistant message in a JSONL string", () => {
+    const content = [
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          model: "claude-opus-4-6",
+          usage: {
+            input_tokens: 100,
+            cache_creation_input_tokens: 200,
+            cache_read_input_tokens: 300,
+            output_tokens: 50,
+          },
+        },
+      }),
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          model: "claude-opus-4-6",
+          usage: {
+            input_tokens: 3,
+            cache_creation_input_tokens: 9294,
+            cache_read_input_tokens: 8526,
+            output_tokens: 458,
+          },
+        },
+      }),
+    ].join("\n");
+
+    expect(provider.parseSessionUsage!(content)).toEqual({
+      inputTokens: 3,
+      cacheCreationInputTokens: 9294,
+      cacheReadInputTokens: 8526,
+      outputTokens: 458,
+    });
+  });
+
+  it("returns undefined for empty content", () => {
+    expect(provider.parseSessionUsage!("")).toBeUndefined();
+  });
+
+  it("returns undefined for content with no assistant messages", () => {
+    const content = [
+      JSON.stringify({ type: "system", subtype: "init", session_id: "abc" }),
+      JSON.stringify({ type: "result", result: "done" }),
+    ].join("\n");
+    expect(provider.parseSessionUsage!(content)).toBeUndefined();
+  });
+
+  it("returns undefined when assistant message has no usage block", () => {
+    const content = JSON.stringify({
+      type: "assistant",
+      message: {
+        model: "claude-opus-4-6",
+        content: [{ type: "text", text: "hi" }],
+      },
+    });
+    expect(provider.parseSessionUsage!(content)).toBeUndefined();
+  });
+
+  it("returns undefined for malformed JSON lines", () => {
+    const content = "not json\n{bad json\n";
+    expect(provider.parseSessionUsage!(content)).toBeUndefined();
+  });
+
+  it("skips malformed lines and finds valid assistant message", () => {
+    const content = [
+      "not json",
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          model: "claude-opus-4-6",
+          usage: {
+            input_tokens: 10,
+            cache_creation_input_tokens: 20,
+            cache_read_input_tokens: 30,
+            output_tokens: 40,
+          },
+        },
+      }),
+    ].join("\n");
+
+    expect(provider.parseSessionUsage!(content)).toEqual({
+      inputTokens: 10,
+      cacheCreationInputTokens: 20,
+      cacheReadInputTokens: 30,
+      outputTokens: 40,
+    });
+  });
+
+  it("is not defined on pi provider", () => {
+    expect(pi("model").parseSessionUsage).toBeUndefined();
+  });
+
+  it("is not defined on codex provider", () => {
+    expect(codex("model").parseSessionUsage).toBeUndefined();
+  });
+
+  it("is not defined on opencode provider", () => {
+    expect(opencode("model").parseSessionUsage).toBeUndefined();
+  });
+});
+
 describe("captureSessions flag", () => {
   it("claudeCode defaults captureSessions to true", () => {
     expect(claudeCode("claude-opus-4-6").captureSessions).toBe(true);

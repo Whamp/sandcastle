@@ -10,7 +10,7 @@ import type { SandboxError } from "./errors.js";
 import type { SandboxService } from "./SandboxFactory.js";
 import { SandboxFactory, SANDBOX_REPO_DIR } from "./SandboxFactory.js";
 import { withSandboxLifecycle, type SandboxHooks } from "./SandboxLifecycle.js";
-import type { AgentProvider } from "./AgentProvider.js";
+import type { AgentProvider, IterationUsage } from "./AgentProvider.js";
 import { TextDeltaBuffer } from "./TextDeltaBuffer.js";
 import {
   hostSessionStore,
@@ -22,7 +22,7 @@ import { SessionPaths } from "./SessionPaths.js";
 /** Sandbox-side Claude Code projects directory (fixed convention). */
 const SANDBOX_PROJECTS_DIR = "/home/agent/.claude/projects";
 
-export type { ParsedStreamEvent } from "./AgentProvider.js";
+export type { ParsedStreamEvent, IterationUsage } from "./AgentProvider.js";
 
 const IDLE_WARNING_INTERVAL_MS = 60_000;
 
@@ -191,6 +191,8 @@ export interface IterationResult {
   readonly sessionId?: string;
   /** Absolute host path to the captured session JSONL, or undefined when capture is disabled or provider is non-Claude. */
   readonly sessionFilePath?: string;
+  /** Token usage snapshot from the last assistant message in the session, or undefined when capture is disabled or provider does not support usage parsing. */
+  readonly usage?: IterationUsage;
 }
 
 export interface OrchestrateResult {
@@ -332,6 +334,7 @@ export const orchestrate = (
 
                 // Capture session while sandbox is still alive
                 let sessionFilePath: string | undefined;
+                let usage: IterationUsage | undefined;
                 if (provider.captureSessions && sessionId && bindMountHandle) {
                   yield* display.status(label("Capturing session"), "info");
                   const sbStore = sandboxSessionStore(
@@ -349,6 +352,18 @@ export const orchestrate = (
                       }),
                   });
                   sessionFilePath = hStore.sessionFilePath(sessionId);
+
+                  // Parse token usage from the captured session JSONL
+                  if (provider.parseSessionUsage) {
+                    const content = yield* Effect.promise(() =>
+                      hStore
+                        .readSession(sessionId)
+                        .catch(() => undefined as string | undefined),
+                    );
+                    if (content) {
+                      usage = provider.parseSessionUsage(content);
+                    }
+                  }
                 }
 
                 // Check completion signal
@@ -360,6 +375,7 @@ export const orchestrate = (
                   stdout: agentOutput,
                   sessionId,
                   sessionFilePath,
+                  usage,
                 } as const;
               }),
           ),
@@ -375,6 +391,7 @@ export const orchestrate = (
       allIterations.push({
         sessionId: lifecycleResult.result.sessionId,
         sessionFilePath: lifecycleResult.result.sessionFilePath,
+        usage: lifecycleResult.result.usage,
       });
 
       if (lifecycleResult.result.completionSignal !== undefined) {

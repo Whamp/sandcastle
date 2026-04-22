@@ -672,10 +672,20 @@ Removes the Podman image.
 
 ### `IterationResult`
 
-| Field             | Type    | Description                                                                          |
-| ----------------- | ------- | ------------------------------------------------------------------------------------ |
-| `sessionId`       | string? | Claude Code session ID from the init line, or `undefined` for non-Claude agents      |
-| `sessionFilePath` | string? | Absolute host path to the captured session JSONL, or `undefined` when capture is off |
+| Field             | Type              | Description                                                                                                                         |
+| ----------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `sessionId`       | string?           | Claude Code session ID from the init line, or `undefined` for non-Claude agents                                                     |
+| `sessionFilePath` | string?           | Absolute host path to the captured session JSONL, or `undefined` when capture is off                                                |
+| `usage`           | `IterationUsage`? | Token usage snapshot from the last assistant message, or `undefined` when capture is off or provider does not support usage parsing |
+
+### `IterationUsage`
+
+| Field                      | Type   | Description                                |
+| -------------------------- | ------ | ------------------------------------------ |
+| `inputTokens`              | number | Input tokens consumed                      |
+| `cacheCreationInputTokens` | number | Tokens used to create prompt cache entries |
+| `cacheReadInputTokens`     | number | Tokens read from prompt cache              |
+| `outputTokens`             | number | Output tokens generated                    |
 
 ### Session capture
 
