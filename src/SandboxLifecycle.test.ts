@@ -819,7 +819,7 @@ describe("withSandboxLifecycle (worktree mode)", () => {
     ).rejects.toThrow("sync failed");
   });
 
-  it("logs 'Syncing changes to host' taskLog when applyToHost is provided", async () => {
+  it("logs 'No commits to sync out' when applyToHost is provided but no commits", async () => {
     const { hostDir, worktreeDir, layer } = await setupWorktree();
     const displayRef = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]);
     const displayLayer = SilentDisplay.layer(displayRef);
@@ -840,12 +840,44 @@ describe("withSandboxLifecycle (worktree mode)", () => {
     );
 
     const syncLog = entries.find(
-      (e) => e._tag === "taskLog" && e.title === "Syncing changes to host",
+      (e) => e._tag === "taskLog" && e.title === "No commits to sync out",
     );
     expect(syncLog).toBeDefined();
   });
 
-  it("does not log 'Syncing changes to host' when applyToHost is not provided", async () => {
+  it("logs 'Syncing N commits to host' when applyToHost is provided with commits", async () => {
+    const { hostDir, worktreeDir, layer } = await setupWorktree();
+    const displayRef = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]);
+    const displayLayer = SilentDisplay.layer(displayRef);
+
+    const entries = await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* withSandboxLifecycle(
+          {
+            hostRepoDir: hostDir,
+            sandboxRepoDir: worktreeDir,
+            branch: "sandcastle/test",
+            applyToHost: () => Effect.void,
+          },
+          (ctx) =>
+            Effect.gen(function* () {
+              yield* ctx.sandbox.exec(
+                'sh -c "echo new > sync-file.txt && git add sync-file.txt && git commit -m \\"sync commit\\""',
+                { cwd: ctx.sandboxRepoDir },
+              );
+            }),
+        );
+        return yield* Ref.get(displayRef);
+      }).pipe(Effect.provide(Layer.merge(layer, displayLayer))),
+    );
+
+    const syncLog = entries.find(
+      (e) => e._tag === "taskLog" && e.title === "Syncing 1 commit to host",
+    );
+    expect(syncLog).toBeDefined();
+  });
+
+  it("does not log sync taskLog when applyToHost is not provided", async () => {
     const { hostDir, worktreeDir, layer } = await setupWorktree();
     const displayRef = Ref.unsafeMake<ReadonlyArray<DisplayEntry>>([]);
     const displayLayer = SilentDisplay.layer(displayRef);
@@ -865,7 +897,10 @@ describe("withSandboxLifecycle (worktree mode)", () => {
     );
 
     const syncLog = entries.find(
-      (e) => e._tag === "taskLog" && e.title === "Syncing changes to host",
+      (e) =>
+        e._tag === "taskLog" &&
+        (e.title === "No commits to sync out" ||
+          e.title.startsWith("Syncing")),
     );
     expect(syncLog).toBeUndefined();
   });

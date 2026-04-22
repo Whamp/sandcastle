@@ -143,9 +143,8 @@ export interface SandboxInfo {
   readonly hostWorktreePath?: string;
   /** Absolute path to the worktree inside the sandbox, as reported by the provider. */
   readonly sandboxRepoPath: string;
-  /** Sync changes from the sandbox to the host worktree.
-   *  For isolated providers, runs syncOut. For bind-mount providers, this is a no-op. */
-  readonly applyToHost: () => Effect.Effect<void, SyncError>;
+  /** Sync changes from the sandbox to the host worktree (isolated providers only). */
+  readonly applyToHost?: () => Effect.Effect<void, SyncError>;
   /** The bind-mount sandbox handle, available when the provider is a bind-mount provider. Used for session capture. */
   readonly bindMountHandle?: BindMountSandboxHandle;
 }
@@ -447,7 +446,6 @@ export const WorktreeDockerSandboxFactory = {
                     makeEffect({
                       hostWorktreePath: hostRepoDir,
                       sandboxRepoPath: worktreePath,
-                      applyToHost: () => Effect.void,
                       bindMountHandle: handle as BindMountSandboxHandle,
                     }).pipe(Effect.provide(sandboxLayer)) as Effect.Effect<
                       A,
@@ -538,7 +536,6 @@ export const WorktreeDockerSandboxFactory = {
               makeEffect({
                 hostWorktreePath: worktreeInfo.path,
                 sandboxRepoPath: worktreePath,
-                applyToHost: () => Effect.void,
                 bindMountHandle: handle as BindMountSandboxHandle,
               }).pipe(Effect.provide(sandboxLayer)) as Effect.Effect<
                 A,

@@ -332,10 +332,22 @@ export const withSandboxLifecycle = <A>(
     // Run the caller's work
     const result = yield* work({ sandbox, sandboxRepoDir, baseHead });
 
-    // Sync changes from sandbox to host worktree (no-op for bind-mount providers)
+    // Sync changes from sandbox to host worktree (isolated sandbox only)
     if (options.applyToHost) {
-      yield* display.taskLog("Syncing changes to host", () =>
-        options.applyToHost!(),
+      const countResult = yield* sandbox.exec(
+        `git rev-list "${baseHead}..HEAD" --count`,
+        { cwd: sandboxRepoDir },
+      );
+      const commitCount =
+        countResult.exitCode === 0
+          ? parseInt(countResult.stdout.trim(), 10)
+          : 0;
+
+      yield* display.taskLog(
+        commitCount > 0
+          ? `Syncing ${commitCount} commit${commitCount !== 1 ? "s" : ""} to host`
+          : "No commits to sync out",
+        () => options.applyToHost!(),
       );
     }
 
