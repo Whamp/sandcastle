@@ -1,6 +1,8 @@
 import { NodeContext, NodeFileSystem } from "@effect/platform-node";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { Effect, Layer } from "effect";
+import { hostSessionStore } from "./SessionStore.js";
 import type { AgentProvider } from "./AgentProvider.js";
 import { ClackDisplay, Display, FileDisplay } from "./Display.js";
 import { preprocessPrompt } from "./PromptPreprocessor.js";
@@ -116,6 +118,8 @@ export interface WorktreeRunOptions {
   readonly hooks?: SandboxHooks;
   /** Environment variables to inject into the sandbox. */
   readonly env?: Record<string, string>;
+  /** Resume a prior Claude Code session by ID. The session JSONL must exist on the host. Incompatible with maxIterations > 1. */
+  readonly resumeSession?: string;
 }
 
 export interface WorktreeRunResult {
@@ -409,6 +413,23 @@ export const createWorktree = async (
     const sandboxProvider = opts.sandbox;
     const maxIterations = opts.maxIterations ?? 1;
 
+    if (opts.resumeSession && maxIterations > 1) {
+      throw new Error(
+        "resumeSession cannot be combined with maxIterations > 1. " +
+          "Resume applies to iteration 1 only; multi-iteration resume semantics are not supported.",
+      );
+    }
+
+    if (opts.resumeSession) {
+      const hStore = hostSessionStore(hostRepoDir);
+      const sessionPath = hStore.sessionFilePath(opts.resumeSession);
+      if (!existsSync(sessionPath)) {
+        throw new Error(
+          `resumeSession "${opts.resumeSession}" not found: expected session file at ${sessionPath}`,
+        );
+      }
+    }
+
     const inner = Effect.gen(function* () {
       // 1. Resolve prompt
       const rawPrompt = yield* resolvePrompt({ prompt, promptFile });
@@ -533,6 +554,7 @@ export const createWorktree = async (
           completionSignal: opts.completionSignal,
           idleTimeoutSeconds: opts.idleTimeoutSeconds,
           name: opts.name,
+          resumeSession: opts.resumeSession,
         });
       }).pipe(
         Effect.provide(runLayer),

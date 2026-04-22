@@ -415,20 +415,21 @@ await sandbox.close();
 
 #### `WorktreeRunOptions`
 
-| Option               | Type                   | Default | Description                                                   |
-| -------------------- | ---------------------- | ------- | ------------------------------------------------------------- |
-| `agent`              | AgentProvider          | —       | **Required.** Agent provider                                  |
-| `sandbox`            | SandboxProvider        | —       | **Required.** Sandbox provider (AFK agents must be sandboxed) |
-| `prompt`             | string                 | —       | Inline prompt (mutually exclusive with `promptFile`)          |
-| `promptFile`         | string                 | —       | Path to prompt file                                           |
-| `maxIterations`      | number                 | 1       | Maximum iterations to run                                     |
-| `completionSignal`   | string \| string[]     | —       | Substring(s) to stop the iteration loop early                 |
-| `idleTimeoutSeconds` | number                 | 600     | Idle timeout in seconds                                       |
-| `name`               | string                 | —       | Optional run name                                             |
-| `logging`            | LoggingOption          | file    | Logging mode                                                  |
-| `hooks`              | SandboxHooks           | —       | Lifecycle hooks (`host.*`, `sandbox.*`)                       |
-| `promptArgs`         | PromptArgs             | —       | Key-value map for `{{KEY}}` placeholder substitution          |
-| `env`                | Record<string, string> | —       | Environment variables to inject into the sandbox              |
+| Option               | Type                   | Default | Description                                                                                                       |
+| -------------------- | ---------------------- | ------- | ----------------------------------------------------------------------------------------------------------------- |
+| `agent`              | AgentProvider          | —       | **Required.** Agent provider                                                                                      |
+| `sandbox`            | SandboxProvider        | —       | **Required.** Sandbox provider (AFK agents must be sandboxed)                                                     |
+| `prompt`             | string                 | —       | Inline prompt (mutually exclusive with `promptFile`)                                                              |
+| `promptFile`         | string                 | —       | Path to prompt file                                                                                               |
+| `maxIterations`      | number                 | 1       | Maximum iterations to run                                                                                         |
+| `completionSignal`   | string \| string[]     | —       | Substring(s) to stop the iteration loop early                                                                     |
+| `idleTimeoutSeconds` | number                 | 600     | Idle timeout in seconds                                                                                           |
+| `name`               | string                 | —       | Optional run name                                                                                                 |
+| `logging`            | LoggingOption          | file    | Logging mode                                                                                                      |
+| `hooks`              | SandboxHooks           | —       | Lifecycle hooks (`host.*`, `sandbox.*`)                                                                           |
+| `promptArgs`         | PromptArgs             | —       | Key-value map for `{{KEY}}` placeholder substitution                                                              |
+| `env`                | Record<string, string> | —       | Environment variables to inject into the sandbox                                                                  |
+| `resumeSession`      | string                 | —       | Resume a prior Claude Code session by ID. Incompatible with `maxIterations > 1`. Session file must exist on host. |
 
 #### `WorktreeRunResult`
 
