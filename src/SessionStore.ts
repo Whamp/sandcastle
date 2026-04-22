@@ -90,7 +90,7 @@ export const hostSessionStore = (
  */
 export const sandboxSessionStore = (
   cwd: string,
-  handle: Pick<BindMountSandboxHandle, "copyFileIn" | "copyFileOut">,
+  handle: Pick<BindMountSandboxHandle, "copyFileIn" | "copyFileOut" | "exec">,
   projectsDir: string,
 ): SessionStore => {
   const encoded = encodeProjectPath(cwd);
@@ -120,6 +120,9 @@ export const sandboxSessionStore = (
       );
       await writeFile(tmpPath, content);
       try {
+        // Ensure the sandbox-side project directory exists — `docker cp` /
+        // `podman cp` require the destination's parent directory to exist.
+        await handle.exec(`mkdir -p ${JSON.stringify(projectDir)}`);
         await handle.copyFileIn(tmpPath, sandboxPath);
       } finally {
         await rm(tmpPath, { force: true }).catch(() => {});

@@ -254,17 +254,20 @@ describe("sandboxSessionStore", () => {
 
       const copyFileOutCalls: Array<{ from: string; to: string }> = [];
 
-      const handle: Pick<BindMountSandboxHandle, "copyFileIn" | "copyFileOut"> =
-        {
-          copyFileIn: async () => {},
-          copyFileOut: async (sandboxPath: string, hostPath: string) => {
-            copyFileOutCalls.push({ from: sandboxPath, to: hostPath });
-            // Simulate actual copy for the read to work
-            const content = await readFile(sandboxPath, "utf-8");
-            await mkdir(join(hostPath, ".."), { recursive: true });
-            await writeFile(hostPath, content);
-          },
-        };
+      const handle: Pick<
+        BindMountSandboxHandle,
+        "copyFileIn" | "copyFileOut" | "exec"
+      > = {
+        copyFileIn: async () => {},
+        copyFileOut: async (sandboxPath: string, hostPath: string) => {
+          copyFileOutCalls.push({ from: sandboxPath, to: hostPath });
+          // Simulate actual copy for the read to work
+          const content = await readFile(sandboxPath, "utf-8");
+          await mkdir(join(hostPath, ".."), { recursive: true });
+          await writeFile(hostPath, content);
+        },
+        exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+      };
 
       const store = sandboxSessionStore(
         sandboxCwd,
@@ -289,13 +292,16 @@ describe("sandboxSessionStore", () => {
 
       const copyFileInCalls: Array<{ from: string; to: string }> = [];
 
-      const handle: Pick<BindMountSandboxHandle, "copyFileIn" | "copyFileOut"> =
-        {
-          copyFileIn: async (hostPath: string, sandboxPath: string) => {
-            copyFileInCalls.push({ from: hostPath, to: sandboxPath });
-          },
-          copyFileOut: async () => {},
-        };
+      const handle: Pick<
+        BindMountSandboxHandle,
+        "copyFileIn" | "copyFileOut" | "exec"
+      > = {
+        copyFileIn: async (hostPath: string, sandboxPath: string) => {
+          copyFileInCalls.push({ from: hostPath, to: sandboxPath });
+        },
+        copyFileOut: async () => {},
+        exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
+      };
 
       const sandboxCwd = "/workspace";
       const store = sandboxSessionStore(
@@ -320,7 +326,10 @@ describe("sandboxSessionStore", () => {
     const sandboxOnlyProjectsDir = "/nonexistent-on-host/.claude/projects";
     const sessionContent = JSON.stringify({ type: "init" });
 
-    const handle: Pick<BindMountSandboxHandle, "copyFileIn" | "copyFileOut"> = {
+    const handle: Pick<
+      BindMountSandboxHandle,
+      "copyFileIn" | "copyFileOut" | "exec"
+    > = {
       copyFileIn: async (hostPath: string) => {
         // Must be able to read from the host tmp path.
         await readFile(hostPath, "utf-8");
@@ -329,6 +338,7 @@ describe("sandboxSessionStore", () => {
         // Must be able to write to the host tmp path.
         await writeFile(hostPath, sessionContent);
       },
+      exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
     };
 
     const store = sandboxSessionStore(
@@ -341,10 +351,47 @@ describe("sandboxSessionStore", () => {
     await expect(store.writeSession("s2", "x")).resolves.toBeUndefined();
   });
 
+  it("mkdirs the sandbox project directory before copyFileIn on writeSession", async () => {
+    // Regression: docker/podman `cp` require the destination's parent directory
+    // to exist. Fresh sandboxes don't have ~/.claude/projects/<encoded>/ yet,
+    // so writeSession must create it before copying the file in.
+    const calls: string[] = [];
+
+    const handle: Pick<
+      BindMountSandboxHandle,
+      "copyFileIn" | "copyFileOut" | "exec"
+    > = {
+      copyFileIn: async () => {
+        calls.push("copyFileIn");
+      },
+      copyFileOut: async () => {},
+      exec: async (command: string) => {
+        calls.push(`exec:${command}`);
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
+    };
+
+    const store = sandboxSessionStore(
+      "/home/agent/workspace",
+      handle as BindMountSandboxHandle,
+      "/home/agent/.claude/projects",
+    );
+
+    await store.writeSession("s1", "{}");
+
+    expect(calls.length).toBe(2);
+    expect(calls[0]).toMatch(/^exec:mkdir -p /);
+    expect(calls[0]).toContain(
+      "/home/agent/.claude/projects/-home-agent-workspace",
+    );
+    expect(calls[1]).toBe("copyFileIn");
+  });
+
   it("exposes cwd", () => {
     const handle = {
       copyFileIn: async () => {},
       copyFileOut: async () => {},
+      exec: async () => ({ stdout: "", stderr: "", exitCode: 0 }),
     } as unknown as BindMountSandboxHandle;
 
     const store = sandboxSessionStore(
