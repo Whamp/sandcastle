@@ -110,6 +110,64 @@ describe("createWorktree", () => {
     }
   });
 
+  it("reuses existing clean worktree when called twice with the same branch", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "ws-test-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "init.txt", "init", "initial commit");
+
+    const ws1 = await createWorktree({
+      branchStrategy: { type: "branch", branch: "reuse-branch" },
+      cwd: hostDir,
+    });
+
+    // Close the first handle (worktree is clean, so it gets removed)
+    await ws1.close();
+
+    // Re-create the branch so worktree collision can happen
+    const ws1b = await createWorktree({
+      branchStrategy: { type: "branch", branch: "reuse-branch" },
+      cwd: hostDir,
+    });
+
+    // Now create a second handle while the first is still alive
+    const ws2 = await createWorktree({
+      branchStrategy: { type: "branch", branch: "reuse-branch" },
+      cwd: hostDir,
+    });
+
+    expect(ws2.worktreePath).toBe(ws1b.worktreePath);
+    expect(ws2.branch).toBe("reuse-branch");
+
+    await ws1b.close();
+    await rm(hostDir, { recursive: true, force: true });
+  });
+
+  it("throws when creating worktree on dirty branch", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "ws-test-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "init.txt", "init", "initial commit");
+
+    const ws = await createWorktree({
+      branchStrategy: { type: "branch", branch: "dirty-branch" },
+      cwd: hostDir,
+    });
+
+    // Make the worktree dirty
+    await writeFile(join(ws.worktreePath, "dirty.txt"), "uncommitted");
+
+    await expect(
+      createWorktree({
+        branchStrategy: { type: "branch", branch: "dirty-branch" },
+        cwd: hostDir,
+      }),
+    ).rejects.toThrow(/uncommitted changes/i);
+
+    // Clean up
+    await rm(ws.worktreePath, { recursive: true, force: true });
+    await execAsync("git worktree prune", { cwd: hostDir });
+    await rm(hostDir, { recursive: true, force: true });
+  });
+
   it("close() removes worktree when clean", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "ws-test-"));
     await initRepo(hostDir);

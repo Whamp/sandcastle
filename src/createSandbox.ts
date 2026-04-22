@@ -63,8 +63,6 @@ export interface CreateSandboxOptions {
   readonly hooks?: SandboxHooks;
   /** Paths relative to the host repo root to copy into the worktree at creation time. */
   readonly copyToWorktree?: string[];
-  /** When false, reuse an existing worktree instead of failing on collision. Default: true. */
-  readonly throwOnDuplicateWorktree?: boolean;
   /** @internal Test-only overrides to bypass the sandbox provider. */
   readonly _test?: {
     readonly buildSandboxLayer?: (
@@ -568,7 +566,6 @@ export const createSandbox = async (
       );
       const worktreeInfo = yield* WorktreeManager.create(hostRepoDir, {
         branch,
-        throwOnDuplicateWorktree: options.throwOnDuplicateWorktree,
       });
       return { hostRepoDir, worktreeInfo };
     }).pipe(Effect.provide(NodeContext.layer)),

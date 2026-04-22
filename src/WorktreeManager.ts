@@ -114,8 +114,6 @@ export const create = (
   opts?: {
     branch?: string;
     name?: string;
-    /** When false, reuse an existing worktree instead of failing on collision. Default: true. */
-    throwOnDuplicateWorktree?: boolean;
   },
 ): Effect.Effect<
   WorktreeInfo,
@@ -154,9 +152,26 @@ export const create = (
       const existing = yield* listWorktrees(repoDir);
       const collision = existing.find((wt) => wt.branch === branch);
       if (collision) {
-        if (opts.throwOnDuplicateWorktree === false) {
+        // Only reuse worktrees managed by sandcastle (under .sandcastle/worktrees/)
+        const isManagedWorktree = collision.path.startsWith(worktreesDir);
+        if (isManagedWorktree) {
+          // Clean worktree → reuse; dirty worktree → throw
+          const dirty = yield* hasUncommittedChanges(collision.path);
+          if (dirty) {
+            yield* Effect.fail(
+              new WorktreeError({
+                message:
+                  `Worktree at '${collision.path}' (branch '${branch}') has uncommitted changes. ` +
+                  `Commit, stash, or discard them, or run: git worktree remove ${collision.path}`,
+              }),
+            );
+          }
+          console.log(
+            `Reusing existing worktree at ${collision.path} (branch '${branch}')`,
+          );
           return { path: collision.path, branch };
         }
+        // Branch is checked out in the main working tree or external worktree
         yield* Effect.fail(
           new WorktreeError({
             message:

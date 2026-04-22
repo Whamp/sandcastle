@@ -166,22 +166,22 @@ describe("WorktreeManager.create", () => {
     expect(stdout.trim()).toMatch(/^sandcastle\//);
   });
 
-  it("fails with a clear error when branch is already checked out", async () => {
+  it("reuses existing clean worktree for the same branch", async () => {
     const repoDir = await setupRepo();
-    // Create a branch
     await execAsync("git checkout -b my-branch", { cwd: repoDir });
     await commitFile(repoDir, "x.txt", "x", "branch commit");
     await execAsync("git checkout main", { cwd: repoDir });
 
-    // Create first worktree on that branch
-    await run(create(repoDir, { branch: "my-branch" }));
+    const first = await run(create(repoDir, { branch: "my-branch" }));
+    const second = await run(create(repoDir, { branch: "my-branch" }));
 
-    // Try to create a second worktree on the same branch — should fail clearly
-    const err = await runFail(create(repoDir, { branch: "my-branch" }));
-    expect(err.message).toMatch(/already checked out/i);
+    expect(second.path).toBe(first.path);
+    expect(second.branch).toBe("my-branch");
+
+    await run(remove(first.path));
   });
 
-  it("error message includes the path of the existing worktree", async () => {
+  it("throws on dirty worktree collision with actionable message", async () => {
     const repoDir = await setupRepo();
     await execAsync("git checkout -b my-branch", { cwd: repoDir });
     await commitFile(repoDir, "x.txt", "x", "branch commit");
@@ -191,20 +191,16 @@ describe("WorktreeManager.create", () => {
       create(repoDir, { branch: "my-branch" }),
     );
 
+    // Make the worktree dirty
+    await writeFile(join(existingPath, "dirty.txt"), "uncommitted");
+
     const err = await runFail(create(repoDir, { branch: "my-branch" }));
     expect(err.message).toContain(existingPath);
-  });
+    expect(err.message).toMatch(/uncommitted changes/i);
+    expect(err.message).toMatch(/commit.*stash.*discard/i);
+    expect(err.message).toMatch(/git worktree remove/i);
 
-  it("error message suggests what to do", async () => {
-    const repoDir = await setupRepo();
-    await execAsync("git checkout -b my-branch", { cwd: repoDir });
-    await commitFile(repoDir, "x.txt", "x", "branch commit");
-    await execAsync("git checkout main", { cwd: repoDir });
-
-    await run(create(repoDir, { branch: "my-branch" }));
-
-    const err = await runFail(create(repoDir, { branch: "my-branch" }));
-    expect(err.message).toMatch(/different branch|wait/i);
+    await run(remove(existingPath));
   });
 
   it("parallel runs on different branches work without interference", async () => {
@@ -250,7 +246,7 @@ describe("WorktreeManager.create", () => {
     await run(remove(path));
   });
 
-  it("returns existing worktree when throwOnDuplicateWorktree is false", async () => {
+  it("reuses worktree with unpushed commits (not considered dirty)", async () => {
     const repoDir = await setupRepo();
     await execAsync("git checkout -b my-branch", { cwd: repoDir });
     await commitFile(repoDir, "x.txt", "x", "branch commit");
@@ -258,34 +254,15 @@ describe("WorktreeManager.create", () => {
 
     const first = await run(create(repoDir, { branch: "my-branch" }));
 
-    const second = await run(
-      create(repoDir, {
-        branch: "my-branch",
-        throwOnDuplicateWorktree: false,
-      }),
-    );
+    // Add a committed (but unpushed) change — should NOT count as dirty
+    await commitFile(first.path, "extra.txt", "extra", "extra commit");
+
+    const second = await run(create(repoDir, { branch: "my-branch" }));
 
     expect(second.path).toBe(first.path);
     expect(second.branch).toBe("my-branch");
 
     await run(remove(first.path));
-  });
-
-  it("still fails on collision when throwOnDuplicateWorktree is true", async () => {
-    const repoDir = await setupRepo();
-    await execAsync("git checkout -b my-branch", { cwd: repoDir });
-    await commitFile(repoDir, "x.txt", "x", "branch commit");
-    await execAsync("git checkout main", { cwd: repoDir });
-
-    await run(create(repoDir, { branch: "my-branch" }));
-
-    const err = await runFail(
-      create(repoDir, {
-        branch: "my-branch",
-        throwOnDuplicateWorktree: true,
-      }),
-    );
-    expect(err.message).toMatch(/already checked out/i);
   });
 
   it("detects collision when branch is checked out in the main working tree", async () => {

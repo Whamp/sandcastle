@@ -311,7 +311,7 @@ describe("createSandbox", () => {
     await rm(hostDir, { recursive: true, force: true });
   });
 
-  it("errors when branch is already checked out in another worktree", async () => {
+  it("reuses clean worktree when branch is already checked out", async () => {
     const hostDir = await mkdtemp(join(tmpdir(), "sandbox-test-"));
     await initRepo(hostDir);
     await commitFile(hostDir, "init.txt", "init", "initial commit");
@@ -326,9 +326,45 @@ describe("createSandbox", () => {
     });
 
     try {
+      const sandbox2 = await createSandbox({
+        branch: "collision-branch",
+        sandbox: testSandbox,
+        cwd: hostDir,
+        _test: {
+          buildSandboxLayer: (sandboxDir) => makeLocalSandboxLayer(sandboxDir),
+        },
+      });
+
+      expect(sandbox2.worktreePath).toBe(sandbox1.worktreePath);
+      expect(sandbox2.branch).toBe("collision-branch");
+      await sandbox2.close();
+    } finally {
+      await sandbox1.close();
+      await rm(hostDir, { recursive: true, force: true });
+    }
+  });
+
+  it("errors when branch worktree is dirty", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "sandbox-test-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "init.txt", "init", "initial commit");
+
+    const sandbox1 = await createSandbox({
+      branch: "dirty-collision",
+      sandbox: testSandbox,
+      cwd: hostDir,
+      _test: {
+        buildSandboxLayer: (sandboxDir) => makeLocalSandboxLayer(sandboxDir),
+      },
+    });
+
+    // Make the worktree dirty
+    await writeFile(join(sandbox1.worktreePath, "dirty.txt"), "uncommitted");
+
+    try {
       await expect(
         createSandbox({
-          branch: "collision-branch",
+          branch: "dirty-collision",
           sandbox: testSandbox,
           cwd: hostDir,
           _test: {
@@ -336,9 +372,10 @@ describe("createSandbox", () => {
               makeLocalSandboxLayer(sandboxDir),
           },
         }),
-      ).rejects.toThrow(/already checked out/);
+      ).rejects.toThrow(/uncommitted changes/);
     } finally {
-      await sandbox1.close();
+      await rm(sandbox1.worktreePath, { recursive: true, force: true });
+      await execAsync("git worktree prune", { cwd: hostDir });
       await rm(hostDir, { recursive: true, force: true });
     }
   });

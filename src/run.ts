@@ -190,8 +190,6 @@ export interface RunOptions {
   /** Branch strategy — controls how the agent's changes relate to branches.
    * Defaults to { type: "head" } for bind-mount providers and { type: "merge-to-head" } for isolated providers. */
   readonly branchStrategy?: BranchStrategy;
-  /** When false, reuse an existing worktree for the target branch instead of failing on collision. Default: true. */
-  readonly throwOnDuplicateWorktree?: boolean;
   /** Resume a prior Claude Code session by ID. The session JSONL must exist on the host. Incompatible with maxIterations > 1. */
   readonly resumeSession?: string;
 }
@@ -351,7 +349,6 @@ export const run = async (options: RunOptions): Promise<RunResult> => {
         name: options.name,
         sandboxProvider: options.sandbox,
         branchStrategy,
-        throwOnDuplicateWorktree: options.throwOnDuplicateWorktree,
         hooks,
       }),
       NodeFileSystem.layer,
