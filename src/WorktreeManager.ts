@@ -117,6 +117,7 @@ export const create = (
   repoDir: string,
   opts?: {
     branch?: string;
+    baseBranch?: string;
     name?: string;
   },
 ): Effect.Effect<
@@ -184,7 +185,7 @@ export const create = (
         Effect.catchAll((e) => {
           if (e.message.includes("invalid reference")) {
             return execGit(
-              ["worktree", "add", "-b", branch, worktreePath, "HEAD"],
+              ["worktree", "add", "-b", branch, worktreePath, opts?.baseBranch ?? "HEAD"],
               repoDir,
             );
           }

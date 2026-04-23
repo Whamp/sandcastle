@@ -245,6 +245,13 @@ export interface MergeToHeadBranchStrategy {
 export interface NamedBranchStrategy {
   readonly type: "branch";
   readonly branch: string;
+  /**
+   * Git ref to use as the starting point when creating a new branch.
+   * Only used when the branch doesn't already exist — ignored otherwise.
+   * Callers are responsible for ensuring the ref is current (e.g. `git fetch`).
+   * Defaults to `HEAD` when omitted.
+   */
+  readonly baseBranch?: string;
 }
 
 /** Branch strategy for bind-mount providers (all three variants). */

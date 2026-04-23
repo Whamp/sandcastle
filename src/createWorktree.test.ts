@@ -82,6 +82,41 @@ describe("createWorktree", () => {
     }
   });
 
+  it("creates a worktree with baseBranch forking from specified ref", async () => {
+    const hostDir = await mkdtemp(join(tmpdir(), "ws-test-"));
+    await initRepo(hostDir);
+    await commitFile(hostDir, "init.txt", "init", "initial commit");
+
+    const { stdout: baseSha } = await execAsync("git rev-parse HEAD", {
+      cwd: hostDir,
+    });
+
+    // Add a second commit so HEAD moves forward
+    await commitFile(hostDir, "second.txt", "second", "second commit");
+
+    const ws = await createWorktree({
+      branchStrategy: {
+        type: "branch",
+        branch: "feature-from-base",
+        baseBranch: baseSha.trim(),
+      },
+      cwd: hostDir,
+    });
+
+    try {
+      expect(ws.branch).toBe("feature-from-base");
+
+      // The worktree should be at the base commit, not HEAD
+      const { stdout: worktreeHead } = await execAsync("git rev-parse HEAD", {
+        cwd: ws.worktreePath,
+      });
+      expect(worktreeHead.trim()).toBe(baseSha.trim());
+    } finally {
+      await ws.close();
+      await rm(hostDir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects 'head' branch strategy at the type level", () => {
     const _options: CreateWorktreeOptions = {
       // @ts-expect-error - head strategy should be a compile-time error
