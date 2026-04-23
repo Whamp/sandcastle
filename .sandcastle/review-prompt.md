@@ -1,6 +1,6 @@
 # TASK
 
-Review the code changes on branch {{BRANCH}} for issue #{{TASK_ID}}: {{ISSUE_TITLE}}
+Review the code changes on branch {{BRANCH}} for issue #{{ISSUE_NUMBER}}: {{ISSUE_TITLE}}
 
 You are an expert code reviewer focused on enhancing code clarity, consistency, and maintainability while preserving exact functionality.
 
@@ -16,7 +16,7 @@ Here are the last 10 commits:
 
 <issue>
 
-!`gh issue view {{TASK_ID}}`
+!`gh issue view {{ISSUE_NUMBER}}`
 
 </issue>
 

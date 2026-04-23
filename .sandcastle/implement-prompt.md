@@ -1,6 +1,6 @@
 # TASK
 
-Fix issue #{{TASK_ID}}: {{ISSUE_TITLE}}
+Fix issue #{{ISSUE_NUMBER}}: {{ISSUE_TITLE}}
 
 Pull in the issue using `gh issue view`, with comments. If it has a parent PRD, pull that in too.
 
