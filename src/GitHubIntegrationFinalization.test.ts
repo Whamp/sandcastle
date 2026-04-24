@@ -462,6 +462,87 @@ describe("finalizeIntegration GitHub path", () => {
     }
   });
 
+  it("returns retry-needed when the PR finalization report comment fails after child issue mutations, then retries without duplicate done events", async () => {
+    const { repo, landedCommit } = await setupMergedRepo();
+    try {
+      const branch = "sandcastle/task/23-finalization-core";
+      const childIssue: FakeIssue = {
+        number: 23,
+        title: "Child finalized before report failure",
+        body: "## Parent\n\n#21",
+        state: "OPEN",
+        comments: [acceptedForIntegrationComment(23, branch)],
+      };
+      const pullRequest: FakePullRequest = {
+        number: 37,
+        url: "https://github.com/Whamp/sandcastle/pull/37",
+        state: "MERGED",
+        body: manifestBody([
+          {
+            task: { id: "#23", title: childIssue.title },
+            branch,
+          },
+        ]),
+        headRefName: "sandcastle/coordinator/21",
+        baseRefName: "main",
+        mergedAt: "2026-04-24T12:00:00.000Z",
+        mergeCommit: { oid: landedCommit },
+        comments: [],
+      };
+      const fake = createFakeGh([pullRequest], [childIssue]);
+      let failReportComment = true;
+      const gh = async (args: string[]) => {
+        if (
+          failReportComment &&
+          args[0] === "pr" &&
+          args[1] === "comment" &&
+          args[2] === "37"
+        ) {
+          failReportComment = false;
+          fake.commands.push(args);
+          throw new Error("simulated PR report comment failure");
+        }
+
+        return fake.gh(args);
+      };
+
+      const first = await finalizeIntegration({
+        coordinationPullRequest: 37,
+        repo: "Whamp/sandcastle",
+        cwd: repo,
+        gh,
+      });
+
+      expect(first.outcome).toBe("retry-needed");
+      expect(first.reason).toBe("incomplete-write-retry-needed");
+      expect(first.finalizedTasks.map((task) => task.id)).toEqual(["#23"]);
+      expect(first.newlyFinalizedTasks?.map((task) => task.id)).toEqual([
+        "#23",
+      ]);
+      expect(first.incompleteTasks).toEqual([]);
+      expect(childIssue.state).toBe("CLOSED");
+      expect(doneEvents(childIssue)).toHaveLength(1);
+      expect(pullRequest.comments).toHaveLength(0);
+
+      const second = await finalizeIntegration({
+        coordinationPullRequest: 37,
+        repo: "Whamp/sandcastle",
+        cwd: repo,
+        gh,
+      });
+
+      expect(second.outcome).toBe("already-finalized");
+      expect(childIssue.state).toBe("CLOSED");
+      expect(doneEvents(childIssue)).toHaveLength(1);
+      expect(pullRequest.comments).toHaveLength(1);
+      expect(pullRequest.comments[0]!.body).toContain(
+        "Integration Finalization already finalized",
+      );
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
   it("returns retry-needed after a partial GitHub write failure and a later retry finishes the remaining child issue without duplicate done events", async () => {
     const { repo, landedCommit } = await setupMergedRepo();
     try {
@@ -957,6 +1038,81 @@ describe("finalizeIntegration GitHub path", () => {
 
       const result = await finalizeIntegration({
         coordinationPullRequest: 36,
+        repo: "Whamp/sandcastle",
+        cwd: repo,
+        gh,
+      });
+
+      expect(result.outcome).toBe("finalization-needs-attention");
+      expect(result.reason).toBe("accepted-task-state-inconsistent");
+      expect(childIssues[0]!.state).toBe("OPEN");
+      expect(doneEvents(childIssues[0]!)).toEqual([]);
+      expect(childIssueMutationCommands(commands)).toEqual([]);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers GitHub comment createdAt order over embedded recordedAt when deciding the current lifecycle event", async () => {
+    const { repo, landedCommit } = await setupMergedRepo();
+    try {
+      const branch = "sandcastle/task/23-finalization-core";
+      const childIssues: FakeIssue[] = [
+        {
+          number: 23,
+          title: "Accepted child task with a skewed stale timestamp",
+          body: "## Parent\n\n#21",
+          state: "OPEN",
+          comments: [
+            {
+              body: formatTaskCoordinationComment({
+                kind: "sandcastle-task-coordination",
+                version: 1,
+                event: "accepted-for-integration",
+                runId: "accepted-23-skewed",
+                executionMode: "host",
+                recordedAt: "2099-01-01T00:00:00.000Z",
+                branch,
+                reason: "Accepted into the coordination PR with a skewed clock.",
+              }),
+              createdAt: "2026-04-24T10:30:00.000Z",
+            },
+            {
+              body: formatTaskCoordinationComment({
+                kind: "sandcastle-task-coordination",
+                version: 1,
+                event: "needs-attention",
+                runId: "needs-attention-23-current",
+                executionMode: "host",
+                recordedAt: "2026-04-24T09:00:00.000Z",
+                branch,
+                reason: "A later GitHub comment contradicted the accepted state.",
+              }),
+              createdAt: "2026-04-24T11:00:00.000Z",
+            },
+          ],
+        },
+      ];
+      const pullRequest: FakePullRequest = {
+        number: 38,
+        url: "https://github.com/Whamp/sandcastle/pull/38",
+        state: "MERGED",
+        body: manifestBody([
+          {
+            task: { id: "#23", title: childIssues[0]!.title },
+            branch,
+          },
+        ]),
+        headRefName: "sandcastle/coordinator/21",
+        baseRefName: "main",
+        mergedAt: "2026-04-24T12:00:00.000Z",
+        mergeCommit: { oid: landedCommit },
+        comments: [],
+      };
+      const { gh, commands } = createFakeGh([pullRequest], childIssues);
+
+      const result = await finalizeIntegration({
+        coordinationPullRequest: 38,
         repo: "Whamp/sandcastle",
         cwd: repo,
         gh,

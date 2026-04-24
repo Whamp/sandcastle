@@ -295,17 +295,11 @@ export class GitHubIntegrationFinalizationLandingProofAdapter implements Integra
   }
 }
 
-const commentTimestamp = (
-  comment: GitHubIssueComment,
-  parsed: TaskCoordinationComment,
-): number => {
-  const recordedAt = Date.parse(parsed.recordedAt);
-  if (!Number.isNaN(recordedAt)) return recordedAt;
-
+const commentCreatedAtTimestamp = (comment: GitHubIssueComment): number => {
   const createdAt = comment.createdAt
     ? Date.parse(comment.createdAt)
     : Number.NaN;
-  return Number.isNaN(createdAt) ? 0 : createdAt;
+  return Number.isNaN(createdAt) ? Number.NaN : createdAt;
 };
 
 const getCurrentTaskCoordinationEvent = (
@@ -315,7 +309,11 @@ const getCurrentTaskCoordinationEvent = (
     .map((comment, index) => {
       const parsed = parseTaskCoordinationComment(comment.body);
       return parsed
-        ? { parsed, index, timestamp: commentTimestamp(comment, parsed) }
+        ? {
+            parsed,
+            index,
+            createdAt: commentCreatedAtTimestamp(comment),
+          }
         : undefined;
     })
     .filter(
@@ -324,13 +322,16 @@ const getCurrentTaskCoordinationEvent = (
       ): entry is {
         readonly parsed: TaskCoordinationComment;
         readonly index: number;
-        readonly timestamp: number;
+        readonly createdAt: number;
       } => entry !== undefined,
     )
-    .sort(
-      (left, right) =>
-        left.timestamp - right.timestamp || left.index - right.index,
-    )
+    .sort((left, right) => {
+      if (!Number.isNaN(left.createdAt) && !Number.isNaN(right.createdAt)) {
+        return left.createdAt - right.createdAt || left.index - right.index;
+      }
+
+      return left.index - right.index;
+    })
     .at(-1)?.parsed;
 
 const isCurrentAcceptedForIntegrationEventMatchingManifestTask = (

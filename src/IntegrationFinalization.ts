@@ -204,6 +204,24 @@ export interface IntegrationFinalizationReporterPort {
   report(report: IntegrationFinalizationReport): Promise<void>;
 }
 
+const reportAfterDurableFinalizationWrites = async (
+  reporter: IntegrationFinalizationReporterPort,
+  report: IntegrationFinalizationReport,
+  result: IntegrationFinalizationResult,
+): Promise<IntegrationFinalizationResult> => {
+  try {
+    await reporter.report(report);
+    return result;
+  } catch {
+    return {
+      ...result,
+      outcome: "retry-needed",
+      reason: "incomplete-write-retry-needed",
+      incompleteTasks: result.incompleteTasks ?? [],
+    };
+  }
+};
+
 export interface IntegrationFinalizationPorts {
   readonly coordinationPullRequests: IntegrationFinalizationCoordinationPullRequestPort;
   readonly landingProof: IntegrationFinalizationLandingProofPort;
@@ -377,7 +395,8 @@ export const runIntegrationFinalization = async (
     .map(({ task }) => task);
 
   if (alreadyFinalizedTasks.length === manifest.acceptedTasks.length) {
-    await options.ports.reporter.report(
+    return reportAfterDurableFinalizationWrites(
+      options.ports.reporter,
       buildReport(
         {
           outcome: "already-finalized",
@@ -389,15 +408,14 @@ export const runIntegrationFinalization = async (
         },
         { ...reportFacts, manifest },
       ),
+      {
+        outcome: "already-finalized",
+        reason: "already-finalized",
+        finalizedTasks: manifest.acceptedTasks,
+        alreadyFinalizedTasks,
+        newlyFinalizedTasks: [],
+      },
     );
-
-    return {
-      outcome: "already-finalized",
-      reason: "already-finalized",
-      finalizedTasks: manifest.acceptedTasks,
-      alreadyFinalizedTasks,
-      newlyFinalizedTasks: [],
-    };
   }
 
   const decision: AtomicIntegrationFinalizationDecision = {
@@ -433,7 +451,8 @@ export const runIntegrationFinalization = async (
         !incompleteTasks.some((incomplete) => incomplete.id === task.id),
     );
 
-    await options.ports.reporter.report(
+    return reportAfterDurableFinalizationWrites(
+      options.ports.reporter,
       buildReport(
         {
           outcome: "retry-needed",
@@ -446,20 +465,20 @@ export const runIntegrationFinalization = async (
         },
         { ...reportFacts, manifest },
       ),
+      {
+        outcome: "retry-needed",
+        reason: "incomplete-write-retry-needed",
+        finalizedTasks,
+        alreadyFinalizedTasks,
+        newlyFinalizedTasks,
+        incompleteTasks,
+        decision,
+      },
     );
-
-    return {
-      outcome: "retry-needed",
-      reason: "incomplete-write-retry-needed",
-      finalizedTasks,
-      alreadyFinalizedTasks,
-      newlyFinalizedTasks,
-      incompleteTasks,
-      decision,
-    };
   }
 
-  await options.ports.reporter.report(
+  return reportAfterDurableFinalizationWrites(
+    options.ports.reporter,
     buildReport(
       {
         outcome: "finalized",
@@ -471,14 +490,13 @@ export const runIntegrationFinalization = async (
       },
       { ...reportFacts, manifest },
     ),
+    {
+      outcome: "finalized",
+      reason: "finalized",
+      finalizedTasks: decision.acceptedTasks,
+      alreadyFinalizedTasks,
+      newlyFinalizedTasks,
+      decision,
+    },
   );
-
-  return {
-    outcome: "finalized",
-    reason: "finalized",
-    finalizedTasks: decision.acceptedTasks,
-    alreadyFinalizedTasks,
-    newlyFinalizedTasks,
-    decision,
-  };
 };
