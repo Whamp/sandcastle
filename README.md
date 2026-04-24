@@ -167,6 +167,18 @@ const result = await coordinateImplementation({
 
 `coordinateImplementation()` returns accepted-for-integration Tasks, blocked Tasks, needs-attention Tasks, P2/P3 reviewer findings, verification results, coordinator branch/worktree details, and either `pullRequest.url` or `noPullRequestReason`. Sandcastle never merges the PR automatically; a human must review and merge it outside this API. Sandcastle also avoids empty PRs: when no task branch was accepted or the coordinator branch has no diff from the base branch, the result explains why no PR was created. Use `runImplementationCoordination()` when you want the same core state machine with fake or custom backlog, workspace, agent-runner, verifier, and PR ports.
 
+After a coordination PR exists, run Integration Finalization from that PR rather than from child Tasks. The GitHub-first `finalizeIntegration()` wrapper accepts a coordination PR number or URL and uses the current repository by default (or `repo`/`cwd` when configured). If the coordination PR is still open, finalization records a pending/no-op report on the coordination PR. If the PR was closed without merging, or if a merged PR is missing a valid Sandcastle coordination manifest, finalization records **finalization needs attention** on the coordination PR/finalization run. Finalization needs attention is not a needs-attention Task outcome, and these pending/attention outcomes do not mark child Tasks done or close child issues.
+
+```typescript
+import { finalizeIntegration } from "@ai-hero/sandcastle";
+
+const result = await finalizeIntegration({
+  coordinationPullRequest: 123, // or "https://github.com/owner/repo/pull/123"
+});
+
+console.log(result.outcome, result.reason);
+```
+
 ```typescript
 import { run, claudeCode } from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
