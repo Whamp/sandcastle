@@ -101,6 +101,7 @@ export interface GitHubIssueBacklogOptions {
 }
 
 export interface GitHubImplementationBacklogAdapterOptions extends GitHubIssueBacklogOptions {
+  readonly issueNumbers?: readonly number[];
   readonly now?: () => Date;
   readonly runId?: () => string;
   readonly executionMode?: TaskCoordinationComment["executionMode"];
@@ -825,6 +826,7 @@ export class GitHubImplementationBacklogAdapter implements ImplementationCoordin
   readonly #runId: () => string;
   readonly #executionMode: TaskCoordinationComment["executionMode"];
   readonly #claimLeaseMs: number;
+  readonly #issueNumbers?: readonly number[];
 
   constructor(options: GitHubImplementationBacklogAdapterOptions = {}) {
     this.#backlog = new GitHubIssueBacklog(options);
@@ -832,6 +834,7 @@ export class GitHubImplementationBacklogAdapter implements ImplementationCoordin
     this.#runId = options.runId ?? randomUUID;
     this.#executionMode = options.executionMode ?? "host";
     this.#claimLeaseMs = options.claimLeaseMs ?? DEFAULT_TASK_CLAIM_LEASE_MS;
+    this.#issueNumbers = options.issueNumbers;
   }
 
   async loadParent(parent: ParentRef): Promise<ParentEffort> {
@@ -850,7 +853,11 @@ export class GitHubImplementationBacklogAdapter implements ImplementationCoordin
 
   async listScopedTasks(parent: ParentEffort): Promise<readonly ScopedTask[]> {
     const parentIssueNumber = parseScopedTaskIssueNumber({ id: parent.id });
-    const readyIssues = await this.#backlog.listReadyIssues();
+    const explicitIssueNumbers = this.#issueNumbers?.map((number) => ({
+      number,
+    }));
+    const readyIssues =
+      explicitIssueNumbers ?? (await this.#backlog.listReadyIssues());
     const scopedTasks: ScopedTask[] = [];
 
     for (const readyIssue of readyIssues.sort(
