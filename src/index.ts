@@ -64,6 +64,16 @@ export {
   runImplementationCoordination,
   NO_ACCEPTED_ISSUE_BRANCH_NO_PR_REASON,
 } from "./ImplementationCoordination.js";
+export {
+  LocalImplementationAgentRunnerAdapter,
+  LocalImplementationVerifierAdapter,
+  LocalImplementationWorkspaceAdapter,
+} from "./ImplementationCoordinationLocalAdapters.js";
+export type {
+  LocalImplementationAgentRunnerAdapterOptions,
+  LocalImplementationVerifierAdapterOptions,
+  LocalImplementationWorkspaceAdapterOptions,
+} from "./ImplementationCoordinationLocalAdapters.js";
 export type {
   BlockedOutcome,
   BlockedTaskResult,
@@ -98,6 +108,7 @@ export type {
   RunWorkerOptions,
   ScopedTask,
   TaskWorkspace,
+  VerificationCommandResult,
   VerificationPort,
   VerificationResult,
   VerifyOptions,

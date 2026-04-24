@@ -15,10 +15,19 @@ export interface ScopedTask {
   readonly blockers?: readonly string[];
 }
 
+export interface VerificationCommandResult {
+  readonly command: string;
+  readonly cwd: string;
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
 export interface VerificationResult {
   readonly target?: string;
   readonly passed: boolean;
   readonly summary: string;
+  readonly commands?: readonly VerificationCommandResult[];
 }
 
 export interface IntegratedTask {
@@ -82,6 +91,14 @@ export interface ReviewerResult {
 export interface MergeResult {
   readonly merged: boolean;
   readonly summary?: string;
+  readonly stdout?: string;
+  readonly stderr?: string;
+  readonly exitCode?: number;
+  readonly conflictFiles?: readonly string[];
+  readonly taskBranch?: string;
+  readonly taskWorkspace?: string;
+  readonly coordinatorBranch?: string;
+  readonly coordinatorWorkspace?: string;
 }
 
 export interface CoordinationPullRequest {
