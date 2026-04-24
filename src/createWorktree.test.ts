@@ -575,14 +575,17 @@ const makeHostFirstRunAgent = (options?: {
   return {
     name: "host-first-worktree-agent",
     env: {},
+    captureSessions: false,
     buildPrintCommand: (buildOptions) => {
       options?.onBuildPrintCommand?.(buildOptions);
-      return [
-        `echo 'host-first output' > ${shellEscape("host-first-worktree-output.txt")}`,
-        `git add ${shellEscape("host-first-worktree-output.txt")}`,
-        `git commit -m ${shellEscape("host-first worktree commit")}`,
-        `printf '%s\\n' ${shellEscape(toStreamJson("<promise>COMPLETE</promise>"))}`,
-      ].join(" && ");
+      return {
+        command: [
+          `echo 'host-first output' > ${shellEscape("host-first-worktree-output.txt")}`,
+          `git add ${shellEscape("host-first-worktree-output.txt")}`,
+          `git commit -m ${shellEscape("host-first worktree commit")}`,
+          `printf '%s\\n' ${shellEscape(toStreamJson("<promise>COMPLETE</promise>"))}`,
+        ].join(" && "),
+      };
     },
     parseStreamLine: baseProvider.parseStreamLine,
   };
@@ -752,7 +755,7 @@ describe("worktree.run()", () => {
 
     const ws = await createWorktree({
       branchStrategy: { type: "branch", branch: "host-first-worktree" },
-      _test: { hostRepoDir: hostDir },
+      cwd: hostDir,
     });
     const buildPrintCommandCalls: Array<
       Parameters<AgentProvider["buildPrintCommand"]>[0]
@@ -770,7 +773,7 @@ describe("worktree.run()", () => {
         maxIterations: 1,
       });
 
-      expect(result.iterationsRun).toBe(1);
+      expect(result.iterations).toHaveLength(1);
       expect(buildPrintCommandCalls).toHaveLength(1);
       expect(buildPrintCommandCalls[0]!.dangerouslySkipPermissions).toBe(false);
       expect(

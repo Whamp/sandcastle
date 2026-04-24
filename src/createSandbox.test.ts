@@ -79,14 +79,17 @@ const makeHostExecutionAgent = (options?: {
   return {
     name: "host-execution-test-agent",
     env: {},
+    captureSessions: false,
     buildPrintCommand: (buildOptions) => {
       options?.onBuildPrintCommand?.(buildOptions);
-      return [
-        `echo 'host-first output' > ${shellEscape(filename)}`,
-        `git add ${shellEscape(filename)}`,
-        `git commit -m ${shellEscape(commitMessage)}`,
-        `printf '%s\\n' ${shellEscape(toStreamJson("<promise>COMPLETE</promise>"))}`,
-      ].join(" && ");
+      return {
+        command: [
+          `echo 'host-first output' > ${shellEscape(filename)}`,
+          `git add ${shellEscape(filename)}`,
+          `git commit -m ${shellEscape(commitMessage)}`,
+          `printf '%s\\n' ${shellEscape(toStreamJson("<promise>COMPLETE</promise>"))}`,
+        ].join(" && "),
+      };
     },
     parseStreamLine: testProvider.parseStreamLine,
   };
@@ -396,8 +399,7 @@ describe("createSandbox", () => {
         sandbox: testSandbox,
         cwd: hostDir,
         _test: {
-          buildSandboxLayer: (sandboxDir) =>
-            makeLocalSandboxLayer(sandboxDir),
+          buildSandboxLayer: (sandboxDir) => makeLocalSandboxLayer(sandboxDir),
         },
       });
 
@@ -809,7 +811,7 @@ describe("createSandbox", () => {
     const sandbox = await createSandbox({
       branch: "host-first-sandbox",
       sandbox: noSandbox({ env: { GIT_CONFIG_GLOBAL: globalConfigPath } }),
-      _test: { hostRepoDir: hostDir },
+      cwd: hostDir,
     });
 
     const buildPrintCommandCalls: Array<
@@ -829,7 +831,7 @@ describe("createSandbox", () => {
         maxIterations: 1,
       });
 
-      expect(result.iterationsRun).toBe(1);
+      expect(result.iterations).toHaveLength(1);
       expect(result.commits).toHaveLength(1);
       expect(
         await readFile(
@@ -1000,9 +1002,11 @@ describe("createSandbox", () => {
       branch: "test-isolated-setup-persistence",
       sandbox: provider,
       hooks: {
-        onSandboxReady: [{ command: 'echo "ready" > .setup-marker' }],
+        sandbox: {
+          onSandboxReady: [{ command: 'echo "ready" > .setup-marker' }],
+        },
       },
-      _test: { hostRepoDir: hostDir },
+      cwd: hostDir,
     });
 
     try {

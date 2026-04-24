@@ -717,15 +717,18 @@ const makeHostFirstAgent = (options?: {
   return {
     name: "host-first-test-agent",
     env: {},
+    captureSessions: false,
     buildPrintCommand: (buildOptions) => {
       options?.onBuildPrintCommand?.(buildOptions);
-      return [
-        `printf '%s\\n' ${shellEscape(assistantLine)}`,
-        `echo 'host-first output' > ${shellEscape("host-first-output.txt")}`,
-        `git add ${shellEscape("host-first-output.txt")}`,
-        `git commit -m ${shellEscape("host-first commit")}`,
-        `printf '%s\\n' ${shellEscape(resultLine)}`,
-      ].join(" && ");
+      return {
+        command: [
+          `printf '%s\\n' ${shellEscape(assistantLine)}`,
+          `echo 'host-first output' > ${shellEscape("host-first-output.txt")}`,
+          `git add ${shellEscape("host-first-output.txt")}`,
+          `git commit -m ${shellEscape("host-first commit")}`,
+          `printf '%s\\n' ${shellEscape(resultLine)}`,
+        ].join(" && "),
+      };
     },
     parseStreamLine: baseProvider.parseStreamLine,
   };
@@ -788,7 +791,7 @@ describe("run() host-first execution", () => {
         logging: { type: "file", path: join(hostDir, "host-first.log") },
       });
 
-      expect(result.iterationsRun).toBe(1);
+      expect(result.iterations).toHaveLength(1);
       expect(result.completionSignal).toBe("<promise>COMPLETE</promise>");
       expect(result.branch).toBe("main");
       expect(result.commits).toHaveLength(1);

@@ -48,6 +48,7 @@ const makeHostFirstIssueAgentWithProposedFollowOn = (
   return {
     name: "github-issue-success-path-agent-with-proposed-follow-on",
     env: {},
+    captureSessions: false,
     buildPrintCommand: ({ prompt }) => {
       const resultLine = JSON.stringify({
         type: "result",
@@ -61,14 +62,16 @@ const makeHostFirstIssueAgentWithProposedFollowOn = (
           : "<promise>COMPLETE</promise>",
       });
 
-      return [
-        `printf '%s\\n' ${shellEscape(assistantLine)}`,
-        `printf '%s\\n' ${shellEscape("agent-start")} >> ${shellEscape(eventsPath)}`,
-        `echo 'implemented from selected issue' > ${shellEscape("issue-task-output.txt")}`,
-        `git add ${shellEscape("issue-task-output.txt")}`,
-        `git commit -m ${shellEscape("host-first issue task commit")}`,
-        `printf '%s\\n' ${shellEscape(resultLine)}`,
-      ].join(" && ");
+      return {
+        command: [
+          `printf '%s\\n' ${shellEscape(assistantLine)}`,
+          `printf '%s\\n' ${shellEscape("agent-start")} >> ${shellEscape(eventsPath)}`,
+          `echo 'implemented from selected issue' > ${shellEscape("issue-task-output.txt")}`,
+          `git add ${shellEscape("issue-task-output.txt")}`,
+          `git commit -m ${shellEscape("host-first issue task commit")}`,
+          `printf '%s\\n' ${shellEscape(resultLine)}`,
+        ].join(" && "),
+      };
     },
     parseStreamLine: baseProvider.parseStreamLine,
   };
@@ -96,6 +99,7 @@ const makeHostFirstIssueAgentWithBlockedByPrerequisite = (
   return {
     name: "github-issue-success-path-agent-with-blocked-by-prerequisite",
     env: {},
+    captureSessions: false,
     buildPrintCommand: ({ prompt }) => {
       const resultLine = JSON.stringify({
         type: "result",
@@ -109,11 +113,13 @@ const makeHostFirstIssueAgentWithBlockedByPrerequisite = (
           : "<promise>COMPLETE</promise>",
       });
 
-      return [
-        `printf '%s\\n' ${shellEscape(assistantLine)}`,
-        `printf '%s\\n' ${shellEscape("agent-start")} >> ${shellEscape(eventsPath)}`,
-        `printf '%s\\n' ${shellEscape(resultLine)}`,
-      ].join(" && ");
+      return {
+        command: [
+          `printf '%s\\n' ${shellEscape(assistantLine)}`,
+          `printf '%s\\n' ${shellEscape("agent-start")} >> ${shellEscape(eventsPath)}`,
+          `printf '%s\\n' ${shellEscape(resultLine)}`,
+        ].join(" && "),
+      };
     },
     parseStreamLine: baseProvider.parseStreamLine,
   };
