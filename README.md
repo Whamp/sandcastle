@@ -120,7 +120,52 @@ You can also [create your own provider](#custom-execution-providers) using `crea
 
 Sandcastle exports a programmatic `run()` function for use in scripts, CI pipelines, or custom tooling. The examples below use `docker()`, but any execution provider (`SandboxProvider`) works in its place.
 
-Sandcastle also exposes an initial parent-scoped Implementation Coordination core through `coordinateImplementation()` / `runImplementationCoordination()`. The current slice is ports-and-adapters only: callers provide fake or custom backlog, workspace, agent-runner, verifier, and pull request/report ports. With no scoped tasks it returns `do-not-recommend-merge-yet` without creating a PR; with one accepted task it claims the task, runs worker then reviewer, verifies before merging into the coordinator branch, marks the task done only after a successful merge, verifies/pushes the coordinator branch, publishes a PR/report, and returns `recommend-merge` when verification passes.
+Sandcastle also exposes parent-scoped Implementation Coordination through the GitHub-first `coordinateImplementation()` wrapper and the ports-first `runImplementationCoordination()` core. The public happy path discovers implementation Tasks under a parent GitHub issue, coordinates worker/reviewer execution in Sandcastle worktrees, verifies accepted branches, merges them into a coordinator branch, and publishes a pull request as the durable final artifact.
+
+```typescript
+import { claudeCode, coordinateImplementation } from "@ai-hero/sandcastle";
+
+const result = await coordinateImplementation({
+  parentIssue: 123,
+  agent: claudeCode("claude-opus-4-6"),
+});
+
+console.log(result.pullRequest?.url ?? result.noPullRequestReason);
+console.log(result.mergeRecommendation);
+```
+
+By default this uses GitHub Issues in the current repo, host execution through `noSandbox()`, `npm run typecheck` verification, a generated coordinator branch/worktree, and a GitHub PR publisher targeting `main`. Configure explicit child issue numbers, reviewer agent, execution provider, verification commands, PR draft/base branch, repo, cwd, and branch settings when needed. Top-level `cwd` identifies the checkout used by GitHub/repo/worktree adapters; verification commands still run in each task or coordinator worktree by default. Set `verification.cwd` only when you intentionally want to override the command working directory.
+
+```typescript
+import { noSandbox } from "@ai-hero/sandcastle/sandboxes/no-sandbox";
+
+const result = await coordinateImplementation({
+  parentIssue: 123,
+  issueNumbers: [124, 125, 126],
+  agent: claudeCode("claude-sonnet-4-6"),
+  reviewerAgent: claudeCode("claude-opus-4-6"),
+  cwd: "/path/to/repo",
+  repo: "owner/repo",
+  targetBranch: "main",
+  coordinatorBranch: "sandcastle/coordinator/123",
+  execution: {
+    sandbox: noSandbox(),
+    workerMaxIterations: 3,
+    reviewerMaxIterations: 1,
+    maxReviewRounds: 2,
+  },
+  verification: {
+    commands: ["npm run typecheck", "npm test"],
+    // cwd: "/custom/verification/dir", // optional override
+  },
+  pr: {
+    draft: true,
+    baseBranch: "main",
+  },
+});
+```
+
+`coordinateImplementation()` returns completed Tasks, blocked Tasks, needs-attention Tasks, P2/P3 reviewer findings, verification results, coordinator branch/worktree details, and either `pullRequest.url` or `noPullRequestReason`. Sandcastle never merges the PR automatically; a human must review and merge it outside this API. Sandcastle also avoids empty PRs: when no task branch was accepted or the coordinator branch has no diff from the base branch, the result explains why no PR was created. Use `runImplementationCoordination()` when you want the same core state machine with fake or custom backlog, workspace, agent-runner, verifier, and PR ports.
 
 ```typescript
 import { run, claudeCode } from "@ai-hero/sandcastle";
@@ -588,13 +633,13 @@ Tell the agent to output your chosen string(s) in the prompt, and Sandcastle wil
 
 `sandcastle init` prompts you to choose a template and an execution mode. The default host-first Task Coordination path is the `github-issues-coordinator` template. The other non-blank templates are Task Coordination patterns that currently scaffold Docker or Podman sandboxed execution, while `blank` is the generic execution escape hatch. Templates that run in sandboxed execution also prompt for a backlog adapter. If your project's `package.json` has `"type": "module"`, the file will be named `main.ts` instead. Six templates are available:
 
-| Template                       | Description                                                                                               |
-| ------------------------------ | --------------------------------------------------------------------------------------------------------- |
-| `github-issues-coordinator`    | Host-first Task Coordination template backed by GitHub Issues                                             |
-| `blank`                        | Bare scaffold — build your own execution flow or Task Coordination pattern                                |
-| `simple-loop`                  | Legacy Task Coordination template that lands one task at a time and leaves task closure to your workflow |
-| `sequential-reviewer`          | Legacy Task Coordination template that lands one task at a time, then runs a review pass on the landed branch |
-| `parallel-planner`             | Task Coordination template that plans task dependencies, executes ready tasks on separate branches, then lands the results |
+| Template                       | Description                                                                                                                  |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `github-issues-coordinator`    | Host-first Task Coordination template backed by GitHub Issues                                                                |
+| `blank`                        | Bare scaffold — build your own execution flow or Task Coordination pattern                                                   |
+| `simple-loop`                  | Legacy Task Coordination template that lands one task at a time and leaves task closure to your workflow                     |
+| `sequential-reviewer`          | Legacy Task Coordination template that lands one task at a time, then runs a review pass on the landed branch                |
+| `parallel-planner`             | Task Coordination template that plans task dependencies, executes ready tasks on separate branches, then lands the results   |
 | `parallel-planner-with-review` | Task Coordination template that plans task dependencies, executes ready tasks with per-branch review, then lands the results |
 
 Select a template during `sandcastle init` when prompted, or re-run init in a fresh repo to try a different one.
@@ -605,12 +650,12 @@ Select a template during `sandcastle init` when prompted, or re-run init in a fr
 
 Scaffolds the `.sandcastle/` config directory. This is the first command you run in a new repo. The default happy path is host execution with the `github-issues-coordinator` template, so init skips container-image setup and keeps the backlog adapter on GitHub Issues. Templates that run in sandboxed execution still let you choose Docker or Podman during init — selecting Podman writes a `Containerfile` instead of `Dockerfile` and uses `sandcastle podman build-image` for the build step.
 
-| Option         | Required | Default                                          | Description                                                          |
-| -------------- | -------- | ------------------------------------------------ | -------------------------------------------------------------------- |
-| `--image-name` | No       | `sandcastle:<repo-dir-name>`                     | Docker image name                                                    |
-| `--agent`      | No       | Interactive prompt (defaults to Pi)              | Agent to use (`claude-code`, `pi`, `codex`, `opencode`)              |
-| `--model`      | No       | Agent's default model                            | Model to use (e.g. `claude-sonnet-4-6`). Defaults to agent's default |
-| `--template`   | No       | Interactive prompt (defaults to `github-issues-coordinator`) | Template to scaffold (e.g. `github-issues-coordinator`, `blank`, `simple-loop`)  |
+| Option         | Required | Default                                                      | Description                                                                     |
+| -------------- | -------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| `--image-name` | No       | `sandcastle:<repo-dir-name>`                                 | Docker image name                                                               |
+| `--agent`      | No       | Interactive prompt (defaults to Pi)                          | Agent to use (`claude-code`, `pi`, `codex`, `opencode`)                         |
+| `--model`      | No       | Agent's default model                                        | Model to use (e.g. `claude-sonnet-4-6`). Defaults to agent's default            |
+| `--template`   | No       | Interactive prompt (defaults to `github-issues-coordinator`) | Template to scaffold (e.g. `github-issues-coordinator`, `blank`, `simple-loop`) |
 
 The default `github-issues-coordinator` path creates files like:
 

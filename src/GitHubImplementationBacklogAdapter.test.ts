@@ -195,6 +195,42 @@ describe("GitHubImplementationBacklogAdapter", () => {
     ]);
   });
 
+  it("lists explicit issue numbers without using the ready issue list", async () => {
+    const issues: FakeIssue[] = [
+      makeIssue({ number: 100, title: "Parent effort", labels: [] }),
+      makeIssue({ number: 101, title: "Explicit scoped task", labels: [] }),
+      makeIssue({ number: 102, title: "Unlisted scoped task" }),
+    ];
+    const { gh, commands } = createFakeGh(issues);
+    const adapter = new GitHubImplementationBacklogAdapter({
+      gh,
+      issueNumbers: [101],
+      now: () => new Date("2026-04-19T00:30:00.000Z"),
+    });
+
+    const parent = await adapter.loadParent({
+      type: "github-issue",
+      issueNumber: 100,
+    });
+    const scopedTasks = await adapter.listScopedTasks(parent);
+
+    expect(scopedTasks).toEqual([
+      { id: "#101", title: "Explicit scoped task", blockers: [] },
+    ]);
+    expect(commands).not.toContainEqual([
+      "issue",
+      "list",
+      "--state",
+      "open",
+      "--label",
+      READY_FOR_AGENT_LABEL,
+      "--limit",
+      "100",
+      "--json",
+      "number,title",
+    ]);
+  });
+
   it("records claim, reclaim, release, done, and needs-attention lifecycle comments through fake gh", async () => {
     const staleClaim = formatTaskCoordinationComment({
       kind: "sandcastle-task-coordination",

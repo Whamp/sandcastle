@@ -1,4 +1,22 @@
+import type { AgentProvider } from "./AgentProvider.js";
+import {
+  GitHubImplementationBacklogAdapter,
+  type GitHubImplementationBacklogAdapterOptions,
+} from "./GitHubIssueBacklog.js";
+import { GitHubImplementationPullRequestAdapter } from "./GitHubImplementationPullRequestAdapter.js";
+import {
+  LocalImplementationAgentRunnerAdapter,
+  LocalImplementationVerifierAdapter,
+  LocalImplementationWorkspaceAdapter,
+  type LocalImplementationAgentRunnerAdapterOptions,
+  type LocalImplementationVerifierAdapterOptions,
+  type LocalImplementationWorkspaceAdapterOptions,
+} from "./ImplementationCoordinationLocalAdapters.js";
 import { renderImplementationCoordinationReport } from "./ImplementationCoordinationReport.js";
+import type { LoggingOption } from "./run.js";
+import type { SandboxHooks } from "./SandboxLifecycle.js";
+import type { SandboxProvider } from "./SandboxProvider.js";
+import { noSandbox } from "./sandboxes/no-sandbox.js";
 
 export interface ParentRef {
   readonly type: string;
@@ -248,6 +266,90 @@ export interface ImplementationCoordinationOptions {
   readonly parent: ParentRef;
   readonly ports: ImplementationCoordinationPorts;
   readonly policy?: ImplementationCoordinationPolicy;
+}
+
+export interface CoordinateImplementationExecutionOptions {
+  readonly sandbox?: SandboxProvider;
+  readonly workerMaxIterations?: number;
+  readonly reviewerMaxIterations?: number;
+  readonly maxReviewRounds?: number;
+  readonly workerPrompt?: string;
+  readonly reviewerPrompt?: string;
+  readonly completionSignal?: string | readonly string[];
+  readonly idleTimeoutSeconds?: number;
+  readonly logging?: LoggingOption;
+  readonly hooks?: SandboxHooks;
+  readonly env?: Record<string, string>;
+}
+
+export interface CoordinateImplementationVerificationOptions {
+  readonly commands?: readonly string[];
+  readonly cwd?: string;
+  readonly env?: Record<string, string>;
+}
+
+export interface CoordinateImplementationPullRequestOptions {
+  readonly draft?: boolean;
+  readonly baseBranch?: string;
+}
+
+export interface CoordinateImplementationOptions {
+  readonly parentIssue: number;
+  readonly issueNumbers?: readonly number[];
+  readonly agent: AgentProvider;
+  readonly reviewerAgent?: AgentProvider;
+  readonly execution?: CoordinateImplementationExecutionOptions;
+  readonly verification?: CoordinateImplementationVerificationOptions;
+  readonly pr?: CoordinateImplementationPullRequestOptions;
+  readonly cwd?: string;
+  readonly repo?: string;
+  readonly targetBranch?: string;
+  readonly coordinatorBranch?: string;
+  readonly taskBranchPrefix?: string;
+  readonly remote?: string;
+  readonly copyToWorktree?: readonly string[];
+  readonly adapterFactories?: Partial<ImplementationCoordinationAdapterFactories>;
+}
+
+export interface ImplementationCoordinationBacklogFactoryOptions extends GitHubImplementationBacklogAdapterOptions {
+  readonly parentIssue: number;
+}
+
+export interface ImplementationCoordinationWorkspaceFactoryOptions extends LocalImplementationWorkspaceAdapterOptions {}
+
+export interface ImplementationCoordinationAgentRunnerFactoryOptions extends Omit<
+  LocalImplementationAgentRunnerAdapterOptions,
+  "workspace"
+> {
+  readonly workspace: LocalImplementationWorkspaceAdapter;
+}
+
+export interface ImplementationCoordinationVerifierFactoryOptions extends LocalImplementationVerifierAdapterOptions {}
+
+export interface ImplementationCoordinationPullRequestFactoryOptions {
+  readonly cwd?: string;
+  readonly repo?: string;
+  readonly env?: Record<string, string>;
+  readonly baseBranch?: string;
+  readonly draft?: boolean;
+}
+
+export interface ImplementationCoordinationAdapterFactories {
+  backlog(
+    options: ImplementationCoordinationBacklogFactoryOptions,
+  ): ImplementationCoordinationBacklogPort;
+  workspace(
+    options: ImplementationCoordinationWorkspaceFactoryOptions,
+  ): ImplementationCoordinationWorkspacePort;
+  agentRunner(
+    options: ImplementationCoordinationAgentRunnerFactoryOptions,
+  ): ImplementationCoordinationAgentRunnerPort;
+  verifier(
+    options: ImplementationCoordinationVerifierFactoryOptions,
+  ): VerificationPort;
+  pullRequests(
+    options: ImplementationCoordinationPullRequestFactoryOptions,
+  ): ImplementationCoordinationPullRequestPort;
 }
 
 export interface ImplementationCoordinationResult {
@@ -687,4 +789,101 @@ export const runImplementationCoordination = async (
   };
 };
 
-export const coordinateImplementation = runImplementationCoordination;
+const DEFAULT_VERIFICATION_COMMANDS = ["npm run typecheck"] as const;
+
+const defaultAdapterFactories: ImplementationCoordinationAdapterFactories = {
+  backlog: (options) => new GitHubImplementationBacklogAdapter(options),
+  workspace: (options) => new LocalImplementationWorkspaceAdapter(options),
+  agentRunner: (options) => new LocalImplementationAgentRunnerAdapter(options),
+  verifier: (options) => new LocalImplementationVerifierAdapter(options),
+  pullRequests: (options) =>
+    new GitHubImplementationPullRequestAdapter(options),
+};
+
+const isCoreCoordinationOptions = (
+  options: CoordinateImplementationOptions | ImplementationCoordinationOptions,
+): options is ImplementationCoordinationOptions =>
+  "ports" in options && "parent" in options;
+
+export function coordinateImplementation(
+  options: ImplementationCoordinationOptions,
+): Promise<ImplementationCoordinationResult>;
+export function coordinateImplementation(
+  options: CoordinateImplementationOptions,
+): Promise<ImplementationCoordinationResult>;
+export function coordinateImplementation(
+  options: CoordinateImplementationOptions | ImplementationCoordinationOptions,
+): Promise<ImplementationCoordinationResult> {
+  if (isCoreCoordinationOptions(options)) {
+    return runImplementationCoordination(options);
+  }
+
+  const factories = {
+    ...defaultAdapterFactories,
+    ...(options.adapterFactories ?? {}),
+  };
+  const cwd = options.cwd;
+  const repo = options.repo;
+  const targetBranch = options.targetBranch ?? "main";
+  const prBaseBranch = options.pr?.baseBranch ?? targetBranch;
+  const sandbox = options.execution?.sandbox ?? noSandbox();
+  const verificationCommands =
+    options.verification?.commands ?? DEFAULT_VERIFICATION_COMMANDS;
+
+  const backlog = factories.backlog({
+    cwd,
+    repo,
+    parentIssue: options.parentIssue,
+    issueNumbers: options.issueNumbers,
+    executionMode: sandbox.tag === "none" ? "host" : "sandboxed",
+  });
+  const workspace = factories.workspace({
+    cwd,
+    targetBranch,
+    coordinatorBranch: options.coordinatorBranch,
+    taskBranchPrefix: options.taskBranchPrefix,
+    remote: options.remote,
+    copyToWorktree: options.copyToWorktree,
+    hooks: options.execution?.hooks,
+  });
+  const agentRunner = factories.agentRunner({
+    workerAgent: options.agent,
+    reviewerAgent: options.reviewerAgent ?? options.agent,
+    sandbox,
+    workspace: workspace as LocalImplementationWorkspaceAdapter,
+    workerPrompt: options.execution?.workerPrompt,
+    reviewerPrompt: options.execution?.reviewerPrompt,
+    workerMaxIterations: options.execution?.workerMaxIterations,
+    reviewerMaxIterations: options.execution?.reviewerMaxIterations,
+    completionSignal: options.execution?.completionSignal,
+    idleTimeoutSeconds: options.execution?.idleTimeoutSeconds,
+    logging: options.execution?.logging,
+    hooks: options.execution?.hooks,
+    env: options.execution?.env,
+  });
+  const verifier = factories.verifier({
+    commands: verificationCommands,
+    cwd: options.verification?.cwd,
+    env: options.verification?.env,
+  });
+  const pullRequests = factories.pullRequests({
+    cwd,
+    repo,
+    baseBranch: prBaseBranch,
+    draft: options.pr?.draft ?? false,
+  });
+
+  return runImplementationCoordination({
+    parent: { type: "github-issue", issueNumber: options.parentIssue },
+    ports: {
+      backlog,
+      workspace,
+      agentRunner,
+      verifier,
+      pullRequests,
+    },
+    policy: {
+      maxReviewRounds: options.execution?.maxReviewRounds,
+    },
+  });
+}

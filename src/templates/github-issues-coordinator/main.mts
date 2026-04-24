@@ -1,3 +1,8 @@
+// This template intentionally keeps the existing single-task GitHub Issue
+// Task Coordination worker. For parent-scoped coordination that integrates
+// multiple child issues into a coordinator branch and publishes a PR without
+// automatically merging it, use sandcastle.coordinateImplementation({
+// parentIssue, agent }) in a custom script.
 import * as sandcastle from "@ai-hero/sandcastle";
 import {
   GitHubIssueBacklog,
