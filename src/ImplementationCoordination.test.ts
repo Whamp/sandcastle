@@ -632,7 +632,7 @@ describe("coordinateImplementation", () => {
 
     const result = await fake.run();
 
-    expect(result.acceptedForIntegrationTasks).toHaveLength(1);
+    expect(result.acceptedForIntegrationTasks).toEqual([]);
     expect(result.pullRequest).toBeUndefined();
     expect(result.noPullRequestReason).toContain("no integrated changes");
     expect(result.mergeRecommendation).toBe("do-not-recommend-merge-yet");

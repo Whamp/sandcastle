@@ -493,6 +493,7 @@ export const runImplementationCoordination = async (
   const parent = await options.ports.backlog.loadParent(options.parent);
   const scopedTasks = await options.ports.backlog.listScopedTasks(parent);
   const acceptedForIntegrationTasks: AcceptedForIntegrationTask[] = [];
+  const acceptedForIntegrationCandidates: AcceptedForIntegrationTask[] = [];
   const blockedTasks: BlockedTaskResult[] = [];
   const needsAttentionTasks: NeedsAttentionTaskResult[] = [];
   const nonBlockingReviewFindings: ReviewFinding[] = [];
@@ -729,7 +730,7 @@ export const runImplementationCoordination = async (
       continue;
     }
 
-    acceptedForIntegrationTasks.push({
+    acceptedForIntegrationCandidates.push({
       task,
       branch: taskWorkspace.branch,
       workspace: taskWorkspace.path,
@@ -738,7 +739,7 @@ export const runImplementationCoordination = async (
     });
   }
 
-  if (acceptedForIntegrationTasks.length === 0) {
+  if (acceptedForIntegrationCandidates.length === 0) {
     return {
       ...baseResult,
       coordinatorWorkspace,
@@ -754,7 +755,7 @@ export const runImplementationCoordination = async (
   });
   const hasIntegratedChanges = await workspace.hasIntegratedChanges({
     coordinatorWorkspace,
-    acceptedForIntegrationTasks,
+    acceptedForIntegrationTasks: acceptedForIntegrationCandidates,
   });
 
   if (!hasIntegratedChanges) {
@@ -777,11 +778,13 @@ export const runImplementationCoordination = async (
 
   await workspace.pushCoordinatorBranch({ coordinatorWorkspace });
   nonBlockingReviewFindings.push(
-    ...acceptedForIntegrationTasks.flatMap((task) => task.reviewFindings ?? []),
+    ...acceptedForIntegrationCandidates.flatMap(
+      (task) => task.reviewFindings ?? [],
+    ),
   );
   const body = renderImplementationCoordinationReport({
     parent,
-    acceptedForIntegrationTasks,
+    acceptedForIntegrationTasks: acceptedForIntegrationCandidates,
     blockedTasks,
     needsAttentionTasks,
     nonBlockingReviewFindings,
@@ -791,7 +794,7 @@ export const runImplementationCoordination = async (
   });
   const pullRequest = await options.ports.pullRequests.createOrUpdate({
     parent,
-    acceptedForIntegrationTasks,
+    acceptedForIntegrationTasks: acceptedForIntegrationCandidates,
     blockedTasks,
     needsAttentionTasks,
     nonBlockingReviewFindings,
@@ -801,7 +804,7 @@ export const runImplementationCoordination = async (
     body,
   });
 
-  for (const acceptedForIntegrationTask of acceptedForIntegrationTasks) {
+  for (const acceptedForIntegrationTask of acceptedForIntegrationCandidates) {
     await backlog.markTaskAcceptedForIntegration(
       acceptedForIntegrationTask.task,
       {
@@ -813,6 +816,7 @@ export const runImplementationCoordination = async (
         reviewFindings: acceptedForIntegrationTask.reviewFindings,
       },
     );
+    acceptedForIntegrationTasks.push(acceptedForIntegrationTask);
   }
 
   return {
