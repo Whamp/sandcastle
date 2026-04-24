@@ -1,6 +1,6 @@
 # Task Coordination
 
-Task Coordination is the core domain of this fork. It consumes ready tasks from upstream Backlog Curation, coordinates execution on host-first infrastructure, and records trustworthy task outcomes. It includes both single-task coordination and parent-scoped Implementation Coordination, where child task branches may be accepted into a coordination PR before they are done.
+Task Coordination is the core domain of this fork. It consumes ready tasks from upstream Backlog Curation, coordinates autonomous agent implementation on host-first infrastructure, and records trustworthy task outcomes. It includes both single-task coordination and parent-scoped Implementation Coordination, where child task branches may be accepted into an atomic coordination PR before they are done.
 
 ## Language
 
@@ -62,6 +62,14 @@ _Avoid_: Parent issue, parent task, parent project
 A Task Coordination workflow that coordinates ready child tasks under one parent scope into a coordinator branch and coordination PR.
 _Avoid_: Separate bounded context, automatic merge workflow
 
+**Integration Finalization**:
+A Task Coordination truthkeeping workflow that proves a coordination PR landed on the target branch before turning accepted for integration tasks into done tasks.
+_Avoid_: Merge automation, release automation
+
+**Target-branch landing proof**:
+Evidence that a coordination PR's accepted task changes are present on the target branch.
+_Avoid_: PR merged flag as the whole proof
+
 ### Task outcomes
 
 **Ready task**:
@@ -75,6 +83,10 @@ _Avoid_: Using blocked for generic execution trouble
 **Needs-attention task**:
 A task that a worker attempted but could not complete because it requires intervention beyond ordinary retry.
 _Avoid_: Using blocked when the problem is not a task dependency
+
+**Finalization needs attention**:
+An Integration Finalization outcome recorded when the coordination PR landing proof is incomplete or contradictory.
+_Avoid_: Needs-attention task
 
 **Accepted for integration task**:
 A task whose changes are included in a pushed coordinator branch and published coordination PR but have not landed on the target branch.
@@ -138,6 +150,10 @@ _Avoid_: Done marker, automatic merge
 - **Parent-scoped Implementation Coordination** is a workflow inside **Task Coordination**, not a separate bounded context
 - **Parent-scoped Implementation Coordination** turns child tasks into **accepted for integration tasks** only after the **coordinator branch** is pushed and the **coordination PR** is published
 - An **accepted for integration task** is not a **done task**; it is waiting for target-branch landing through the **coordination PR**
+- **Integration Finalization** observes or confirms that a **coordination PR** landed on the **target branch**, proves its accepted task set landed as an intact integration artifact, and then marks those tasks **done**
+- **Integration Finalization** requires both **coordination PR** merge state and **target-branch landing proof** before marking **accepted for integration tasks** **done**
+- A **coordination PR** is treated as an atomic integration artifact: if the accepted task set lands intact, **Integration Finalization** finalizes all of it; if landing proof is incomplete or contradictory, it finalizes none of it
+- When **Integration Finalization** cannot prove an atomic landing, **accepted for integration tasks** remain accepted for integration and the **coordination PR** or finalization run records **finalization needs attention**
 - An **accepted for integration task** resolves its **claim lease**; future selection skips it because of the accepted-for-integration outcome, not because of an active claim
 - A **coordination PR** may have a merge recommendation that does not recommend merge; **accepted for integration** means durable artifact membership, not merge safety
 - A **done task** has landed on the target branch and its **issue** has been closed
@@ -152,17 +168,21 @@ _Avoid_: Done marker, automatic merge
 >
 > **Dev:** "In parent-scoped Implementation Coordination, is a child task done once it appears in the coordination PR?"
 >
-> **Domain expert:** "No. Once the **coordinator branch** is pushed and the **coordination PR** is published, the child task is **accepted for integration**. It becomes **done** only after the change lands on the target branch and the issue is closed or marked done."
+> **Domain expert:** "No. Once the **coordinator branch** is pushed and the **coordination PR** is published, the child task is **accepted for integration**. The **coordination PR** is the atomic integration artifact for its accepted task set. The child tasks become **done** together only after **Integration Finalization** proves that artifact landed on the target branch and closes or marks their issues done."
 
 ## Flagged ambiguities
 
 - **"Task"** vs **"Issue"** — **Task** is canonical; **Issue** is the GitHub representation
 - **"Child task"** vs **"Scoped task"** — **child task** names the stable relationship under a **parent scope**; **scoped task** names run selection and may be a subset of child tasks
 - **"Blocked"** vs **"Needs-attention"** — **blocked** is for unresolved **task dependencies**; **needs-attention** is for execution problems that need intervention
+- **"Needs-attention task"** vs **"Finalization needs attention"** — a **needs-attention task** means worker execution needs intervention; **finalization needs attention** means Integration Finalization could not prove atomic landing and should not change child task outcomes
 - **"Claim"** vs **"Task state"** — a **claim** is coordination metadata, not lifecycle state
 - **"Implemented"** vs **"Done"** — a task can be implemented without being **done**; **done** requires land plus issue closure
 - **"Completed"** vs **"Accepted for integration"** vs **"Done"** — avoid **completed** for parent-scoped child task outcomes; use **accepted for integration** for durable coordination PR membership and **done** only after target-branch landing plus issue closure or marking
 - **"Accepted for integration"** vs **"Merge recommended"** — **accepted for integration** means a child task is represented in a durable coordination artifact; merge safety is expressed separately by the **coordination PR** merge recommendation
+- **"Integration Finalization"** vs **"Merge automation"** — **Integration Finalization** is a truthkeeping workflow that records landed task outcomes after a **coordination PR** lands; it does not merge PRs or decide release readiness
+- **"PR merged"** vs **"Target-branch landing proof"** — a merged **coordination PR** identifies the integration event, but **target-branch landing proof** is still required before accepted tasks become **done**
+- **"Partial finalization"** vs **"Atomic finalization"** — **Integration Finalization** should not optimize for human cherry-picking individual accepted tasks; the normal Sandcastle path finalizes the accepted task set from a landed **coordination PR** as one atomic artifact or finalizes none of it
 - **"Coordinator branch"** vs **"Target branch"** — the **coordinator branch** accumulates accepted child task changes for review; the **target branch** is where changes must land before a task is **done**
 - **"Sandbox"** vs **"Execution mode"** — **execution mode** is the generic term; **sandboxed execution** is only one variant
 - **"Runtime"** vs **"Execution mode"** — **runtime** is too overloaded for top-level product language and should stay provider-specific (for example Vercel runtime)
