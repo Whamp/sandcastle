@@ -66,6 +66,26 @@ export {
   TaskClaimConflictError,
 } from "./ImplementationCoordination.js";
 export { renderImplementationCoordinationReport } from "./ImplementationCoordinationReport.js";
+export { runIntegrationFinalization } from "./IntegrationFinalization.js";
+export type {
+  AcceptedForIntegrationTaskState,
+  AtomicIntegrationFinalizationDecision,
+  IntegrationFinalizationBacklogPort,
+  IntegrationFinalizationCoordinationPullRequest,
+  IntegrationFinalizationCoordinationPullRequestPort,
+  IntegrationFinalizationLandingProofPort,
+  IntegrationFinalizationOptions,
+  IntegrationFinalizationOutcome,
+  IntegrationFinalizationPorts,
+  IntegrationFinalizationPullRequestRef,
+  IntegrationFinalizationReason,
+  IntegrationFinalizationReport,
+  IntegrationFinalizationReporterPort,
+  IntegrationFinalizationResult,
+  MarkDoneOutcome,
+  TargetBranchLandingProofOptions,
+  TargetBranchLandingProofResult,
+} from "./IntegrationFinalization.js";
 export {
   COORDINATION_MANIFEST_KIND,
   COORDINATION_MANIFEST_VERSION,
