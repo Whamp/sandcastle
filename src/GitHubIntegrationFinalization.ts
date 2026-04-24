@@ -2,9 +2,9 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   GitHubIssueBacklog,
-  hasRecordedTaskCoordinationDone,
   parseTaskCoordinationComment,
   type GitHubCommandRunner,
+  type GitHubIssue,
   type GitHubIssueComment,
   type TaskCoordinationComment,
 } from "./GitHubIssueBacklog.js";
@@ -155,7 +155,11 @@ const formatIntegrationFinalizationReportComment = (
       ? "Integration Finalization pending"
       : report.outcome === "finalization-needs-attention"
         ? "Integration Finalization needs attention"
-        : "Integration Finalization finalized";
+        : report.outcome === "already-finalized"
+          ? "Integration Finalization already finalized"
+          : report.outcome === "retry-needed"
+            ? "Integration Finalization retry needed"
+            : "Integration Finalization finalized";
 
   return [
     `## ${headline}`,
@@ -176,6 +180,9 @@ const formatIntegrationFinalizationReportComment = (
         landedCommit: report.landedCommit,
         acceptedTasks: report.acceptedTasks,
         finalizedTasks: report.finalizedTasks,
+        alreadyFinalizedTasks: report.alreadyFinalizedTasks,
+        newlyFinalizedTasks: report.newlyFinalizedTasks,
+        incompleteTasks: report.incompleteTasks,
       },
       null,
       2,
@@ -288,17 +295,67 @@ export class GitHubIntegrationFinalizationLandingProofAdapter implements Integra
   }
 }
 
-const hasAcceptedForIntegrationEventMatchingManifestTask = (
+const commentTimestamp = (
+  comment: GitHubIssueComment,
+  parsed: TaskCoordinationComment,
+): number => {
+  const recordedAt = Date.parse(parsed.recordedAt);
+  if (!Number.isNaN(recordedAt)) return recordedAt;
+
+  const createdAt = comment.createdAt
+    ? Date.parse(comment.createdAt)
+    : Number.NaN;
+  return Number.isNaN(createdAt) ? 0 : createdAt;
+};
+
+const getCurrentTaskCoordinationEvent = (
+  comments: readonly GitHubIssueComment[],
+): TaskCoordinationComment | undefined =>
+  comments
+    .map((comment, index) => {
+      const parsed = parseTaskCoordinationComment(comment.body);
+      return parsed
+        ? { parsed, index, timestamp: commentTimestamp(comment, parsed) }
+        : undefined;
+    })
+    .filter(
+      (
+        entry,
+      ): entry is {
+        readonly parsed: TaskCoordinationComment;
+        readonly index: number;
+        readonly timestamp: number;
+      } => entry !== undefined,
+    )
+    .sort(
+      (left, right) =>
+        left.timestamp - right.timestamp || left.index - right.index,
+    )
+    .at(-1)?.parsed;
+
+const isCurrentAcceptedForIntegrationEventMatchingManifestTask = (
   comments: readonly GitHubIssueComment[],
   task: Parameters<IntegrationFinalizationBacklogPort["loadTaskState"]>[0],
-): boolean =>
-  comments.some((comment) => {
-    const parsed = parseTaskCoordinationComment(comment.body);
-    return (
-      parsed?.event === "accepted-for-integration" &&
-      parsed.branch === task.branch
-    );
-  });
+): boolean => {
+  const current = getCurrentTaskCoordinationEvent(comments);
+  return (
+    current?.event === "accepted-for-integration" &&
+    current.branch === task.branch
+  );
+};
+
+const hasCurrentDoneEventMatchingFinalization = (
+  comments: readonly GitHubIssueComment[],
+  task: Parameters<IntegrationFinalizationBacklogPort["loadTaskState"]>[0],
+  outcome: Parameters<IntegrationFinalizationBacklogPort["loadTaskState"]>[1],
+): boolean => {
+  const current = getCurrentTaskCoordinationEvent(comments);
+  return (
+    current?.event === "done" &&
+    current.branch === task.branch &&
+    current.commits?.includes(outcome.landedCommit) === true
+  );
+};
 
 const parseAcceptedTaskIssueNumber = (task: {
   readonly id: string;
@@ -320,6 +377,7 @@ const parseAcceptedTaskIssueNumber = (task: {
 
 export class GitHubIntegrationFinalizationBacklogAdapter implements IntegrationFinalizationBacklogPort {
   readonly #backlog: GitHubIssueBacklog;
+  readonly #loadedIssues = new Map<number, GitHubIssue>();
 
   constructor(options: GitHubIntegrationFinalizationAdapterOptions = {}) {
     this.#backlog = new GitHubIssueBacklog(options);
@@ -327,17 +385,26 @@ export class GitHubIntegrationFinalizationBacklogAdapter implements IntegrationF
 
   async loadTaskState(
     task: Parameters<IntegrationFinalizationBacklogPort["loadTaskState"]>[0],
+    outcome: Parameters<IntegrationFinalizationBacklogPort["loadTaskState"]>[1],
   ): Promise<AcceptedForIntegrationTaskState> {
-    const issue = await this.#backlog.getIssue(
-      parseAcceptedTaskIssueNumber(task),
-    );
+    const issueNumber = parseAcceptedTaskIssueNumber(task);
+    const issue = await this.#backlog.getIssue(issueNumber);
+    this.#loadedIssues.set(issueNumber, issue);
 
-    if (hasRecordedTaskCoordinationDone(issue.comments)) {
-      return { state: "done" };
+    if (
+      hasCurrentDoneEventMatchingFinalization(issue.comments, task, outcome)
+    ) {
+      return {
+        state: "done",
+        issueState: issue.state === "CLOSED" ? "closed" : "open",
+      };
     }
 
     if (
-      hasAcceptedForIntegrationEventMatchingManifestTask(issue.comments, task)
+      isCurrentAcceptedForIntegrationEventMatchingManifestTask(
+        issue.comments,
+        task,
+      )
     ) {
       return { state: "accepted-for-integration" };
     }
@@ -362,8 +429,19 @@ export class GitHubIntegrationFinalizationBacklogAdapter implements IntegrationF
       reason: outcome.summary,
     };
 
-    await this.#backlog.markTaskDone(issueNumber, comment);
-    await this.#backlog.closeTask(issueNumber);
+    const issue =
+      this.#loadedIssues.get(issueNumber) ??
+      (await this.#backlog.getIssue(issueNumber));
+
+    if (
+      !hasCurrentDoneEventMatchingFinalization(issue.comments, task, outcome)
+    ) {
+      await this.#backlog.markTaskDone(issueNumber, comment);
+    }
+
+    if (issue.state !== "CLOSED") {
+      await this.#backlog.closeTask(issueNumber);
+    }
   }
 }
 

@@ -53,6 +53,7 @@ export interface IntegrationFinalizationLandingProofPort {
 
 export interface AcceptedForIntegrationTaskState {
   readonly state: "accepted-for-integration" | "done" | "other";
+  readonly issueState?: "open" | "closed";
 }
 
 export interface MarkDoneOutcome {
@@ -65,6 +66,7 @@ export interface MarkDoneOutcome {
 export interface IntegrationFinalizationBacklogPort {
   loadTaskState(
     task: CoordinationManifestAcceptedTask,
+    outcome: MarkDoneOutcome,
   ): Promise<AcceptedForIntegrationTaskState>;
   markTaskDone(
     task: CoordinationManifestAcceptedTask,
@@ -75,7 +77,9 @@ export interface IntegrationFinalizationBacklogPort {
 export type IntegrationFinalizationOutcome =
   | "pending"
   | "finalization-needs-attention"
-  | "finalized";
+  | "finalized"
+  | "already-finalized"
+  | "retry-needed";
 
 export type IntegrationFinalizationReason =
   | "coordination-pr-open"
@@ -85,7 +89,9 @@ export type IntegrationFinalizationReason =
   | "coordination-pr-target-branch-mismatch"
   | "target-branch-landing-proof-failed"
   | "accepted-task-state-inconsistent"
-  | "finalized";
+  | "finalized"
+  | "already-finalized"
+  | "incomplete-write-retry-needed";
 
 export interface IntegrationFinalizationReportCoordinationPullRequest {
   readonly id?: string;
@@ -102,6 +108,9 @@ export interface IntegrationFinalizationReport {
   readonly landedCommit?: string;
   readonly acceptedTasks: readonly CoordinationManifestAcceptedTask[];
   readonly finalizedTasks: readonly CoordinationManifestAcceptedTask[];
+  readonly alreadyFinalizedTasks?: readonly CoordinationManifestAcceptedTask[];
+  readonly newlyFinalizedTasks?: readonly CoordinationManifestAcceptedTask[];
+  readonly incompleteTasks?: readonly CoordinationManifestAcceptedTask[];
 }
 
 interface IntegrationFinalizationReportFacts {
@@ -128,7 +137,13 @@ const buildCoordinationPullRequestReportRef = (
 const buildReport = (
   report: Pick<
     IntegrationFinalizationReport,
-    "outcome" | "reason" | "summary" | "finalizedTasks"
+    | "outcome"
+    | "reason"
+    | "summary"
+    | "finalizedTasks"
+    | "alreadyFinalizedTasks"
+    | "newlyFinalizedTasks"
+    | "incompleteTasks"
   >,
   facts: IntegrationFinalizationReportFacts,
 ): IntegrationFinalizationReport =>
@@ -141,6 +156,9 @@ const buildReport = (
     landedCommit: facts.landedCommit,
     acceptedTasks: facts.manifest?.acceptedTasks ?? [],
     finalizedTasks: report.finalizedTasks,
+    alreadyFinalizedTasks: report.alreadyFinalizedTasks,
+    newlyFinalizedTasks: report.newlyFinalizedTasks,
+    incompleteTasks: report.incompleteTasks,
   });
 
 const parseManifestForReportFacts = (
@@ -209,6 +227,9 @@ export interface IntegrationFinalizationResult {
   readonly outcome: IntegrationFinalizationOutcome;
   readonly reason: IntegrationFinalizationReason;
   readonly finalizedTasks: readonly CoordinationManifestAcceptedTask[];
+  readonly alreadyFinalizedTasks?: readonly CoordinationManifestAcceptedTask[];
+  readonly newlyFinalizedTasks?: readonly CoordinationManifestAcceptedTask[];
+  readonly incompleteTasks?: readonly CoordinationManifestAcceptedTask[];
   readonly decision?: AtomicIntegrationFinalizationDecision;
 }
 
@@ -315,14 +336,29 @@ export const runIntegrationFinalization = async (
     );
   }
 
+  const markDoneOutcomes = new Map(
+    manifest.acceptedTasks.map((task) => [
+      task.id,
+      {
+        branch: task.branch,
+        targetBranch: manifest.targetBranch,
+        landedCommit: coordinationPullRequest.landedCommit!,
+        summary: `Accepted task landed on ${manifest.targetBranch} at ${coordinationPullRequest.landedCommit}.`,
+      },
+    ]),
+  );
   const taskStates = await Promise.all(
     manifest.acceptedTasks.map(async (task) => ({
       task,
-      state: await options.ports.backlog.loadTaskState(task),
+      state: await options.ports.backlog.loadTaskState(
+        task,
+        markDoneOutcomes.get(task.id)!,
+      ),
     })),
   );
   const inconsistentTask = taskStates.find(
-    ({ state }) => state.state !== "accepted-for-integration",
+    ({ state }) =>
+      state.state !== "accepted-for-integration" && state.state !== "done",
   );
 
   if (inconsistentTask) {
@@ -330,8 +366,38 @@ export const runIntegrationFinalization = async (
       options.ports,
       { ...reportFacts, manifest },
       "accepted-task-state-inconsistent",
-      `Integration Finalization needs attention because accepted task ${inconsistentTask.task.id} is ${inconsistentTask.state.state}, not accepted for integration.`,
+      `Integration Finalization needs attention because accepted task ${inconsistentTask.task.id} is ${inconsistentTask.state.state}, not accepted for integration or already done for this coordination PR.`,
     );
+  }
+
+  const alreadyFinalizedTasks = taskStates
+    .filter(
+      ({ state }) => state.state === "done" && state.issueState !== "open",
+    )
+    .map(({ task }) => task);
+
+  if (alreadyFinalizedTasks.length === manifest.acceptedTasks.length) {
+    await options.ports.reporter.report(
+      buildReport(
+        {
+          outcome: "already-finalized",
+          reason: "already-finalized",
+          summary: `Integration Finalization already finalized ${manifest.acceptedTasks.length} accepted for integration task(s) after proving ${coordinationPullRequest.landedCommit} landed on ${manifest.targetBranch}.`,
+          finalizedTasks: manifest.acceptedTasks,
+          alreadyFinalizedTasks,
+          newlyFinalizedTasks: [],
+        },
+        { ...reportFacts, manifest },
+      ),
+    );
+
+    return {
+      outcome: "already-finalized",
+      reason: "already-finalized",
+      finalizedTasks: manifest.acceptedTasks,
+      alreadyFinalizedTasks,
+      newlyFinalizedTasks: [],
+    };
   }
 
   const decision: AtomicIntegrationFinalizationDecision = {
@@ -341,13 +407,56 @@ export const runIntegrationFinalization = async (
     acceptedTasks: manifest.acceptedTasks,
   };
 
-  for (const task of decision.acceptedTasks) {
-    await options.ports.backlog.markTaskDone(task, {
-      branch: task.branch,
-      targetBranch: decision.targetBranch,
-      landedCommit: decision.landedCommit,
-      summary: `Accepted task landed on ${decision.targetBranch} at ${decision.landedCommit}.`,
-    });
+  const tasksNeedingWrites = taskStates
+    .filter(
+      ({ state }) => state.state !== "done" || state.issueState === "open",
+    )
+    .map(({ task }) => task);
+  const newlyFinalizedTasks: CoordinationManifestAcceptedTask[] = [];
+  const incompleteTasks: CoordinationManifestAcceptedTask[] = [];
+
+  for (const task of tasksNeedingWrites) {
+    try {
+      await options.ports.backlog.markTaskDone(
+        task,
+        markDoneOutcomes.get(task.id)!,
+      );
+      newlyFinalizedTasks.push(task);
+    } catch {
+      incompleteTasks.push(task);
+    }
+  }
+
+  if (incompleteTasks.length > 0) {
+    const finalizedTasks = decision.acceptedTasks.filter(
+      (task) =>
+        !incompleteTasks.some((incomplete) => incomplete.id === task.id),
+    );
+
+    await options.ports.reporter.report(
+      buildReport(
+        {
+          outcome: "retry-needed",
+          reason: "incomplete-write-retry-needed",
+          summary: `Integration Finalization proved the coordination PR landed on ${decision.targetBranch} at ${decision.landedCommit}, but ${incompleteTasks.length} accepted task write(s) did not complete. Retry finalization to converge remaining child tasks; completed writes were not rolled back.`,
+          finalizedTasks,
+          alreadyFinalizedTasks,
+          newlyFinalizedTasks,
+          incompleteTasks,
+        },
+        { ...reportFacts, manifest },
+      ),
+    );
+
+    return {
+      outcome: "retry-needed",
+      reason: "incomplete-write-retry-needed",
+      finalizedTasks,
+      alreadyFinalizedTasks,
+      newlyFinalizedTasks,
+      incompleteTasks,
+      decision,
+    };
   }
 
   await options.ports.reporter.report(
@@ -357,6 +466,8 @@ export const runIntegrationFinalization = async (
         reason: "finalized",
         summary: `Integration Finalization marked ${decision.acceptedTasks.length} accepted for integration task(s) done after proving ${decision.landedCommit} landed on ${decision.targetBranch}.`,
         finalizedTasks: decision.acceptedTasks,
+        alreadyFinalizedTasks,
+        newlyFinalizedTasks,
       },
       { ...reportFacts, manifest },
     ),
@@ -366,6 +477,8 @@ export const runIntegrationFinalization = async (
     outcome: "finalized",
     reason: "finalized",
     finalizedTasks: decision.acceptedTasks,
+    alreadyFinalizedTasks,
+    newlyFinalizedTasks,
     decision,
   };
 };
