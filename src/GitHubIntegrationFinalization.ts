@@ -1,0 +1,280 @@
+import { execFile } from "node:child_process";
+import type { GitHubCommandRunner } from "./GitHubIssueBacklog.js";
+import {
+  runIntegrationFinalization,
+  type AcceptedForIntegrationTaskState,
+  type IntegrationFinalizationBacklogPort,
+  type IntegrationFinalizationCoordinationPullRequest,
+  type IntegrationFinalizationCoordinationPullRequestComment,
+  type IntegrationFinalizationCoordinationPullRequestPort,
+  type IntegrationFinalizationLandingProofPort,
+  type IntegrationFinalizationPullRequestRef,
+  type IntegrationFinalizationReport,
+  type IntegrationFinalizationReporterPort,
+  type IntegrationFinalizationResult,
+  type TargetBranchLandingProofOptions,
+} from "./IntegrationFinalization.js";
+
+export type GitHubIntegrationFinalizationPullRequestInput =
+  | number
+  | string
+  | IntegrationFinalizationPullRequestRef;
+
+export interface GitHubIntegrationFinalizationAdapterOptions {
+  readonly cwd?: string;
+  readonly repo?: string;
+  readonly env?: Record<string, string>;
+  readonly gh?: GitHubCommandRunner;
+  readonly reportPullRequest?: IntegrationFinalizationPullRequestRef;
+}
+
+export interface GitHubIntegrationFinalizationOptions extends GitHubIntegrationFinalizationAdapterOptions {
+  readonly coordinationPullRequest: GitHubIntegrationFinalizationPullRequestInput;
+}
+
+interface GitHubPullRequestView {
+  readonly number: number;
+  readonly url?: string;
+  readonly state: "OPEN" | "CLOSED" | "MERGED" | string;
+  readonly mergedAt?: string | null;
+  readonly mergeCommit?: { readonly oid?: string } | null;
+  readonly headRefName?: string;
+  readonly baseRefName?: string;
+  readonly body?: string;
+  readonly comments?: readonly IntegrationFinalizationCoordinationPullRequestComment[];
+}
+
+const GITHUB_PR_VIEW_FIELDS =
+  "number,url,state,mergedAt,mergeCommit,headRefName,baseRefName,body,comments";
+
+const execGh = async (
+  args: string[],
+  options?: Pick<GitHubIntegrationFinalizationOptions, "cwd" | "env">,
+): Promise<string> =>
+  new Promise((resolve, reject) => {
+    execFile(
+      "gh",
+      args,
+      {
+        cwd: options?.cwd,
+        env: { ...process.env, ...options?.env },
+        maxBuffer: 10 * 1024 * 1024,
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(stderr?.trim() || error.message));
+          return;
+        }
+
+        resolve(stdout.toString());
+      },
+    );
+  });
+
+const isPullRequestUrlCommand = (args: readonly string[]): boolean =>
+  args[0] === "pr" &&
+  (args[1] === "view" || args[1] === "comment") &&
+  typeof args[2] === "string" &&
+  /^https?:\/\//.test(args[2]);
+
+const withRepo = (args: string[], repo?: string): string[] =>
+  repo && !isPullRequestUrlCommand(args) ? [...args, "--repo", repo] : args;
+
+const toPullRequestRef = (
+  input: GitHubIntegrationFinalizationPullRequestInput,
+): IntegrationFinalizationPullRequestRef => {
+  if (typeof input === "number") {
+    return { number: input };
+  }
+
+  if (typeof input === "string") {
+    const trimmed = input.trim();
+    if (/^https?:\/\//.test(trimmed)) {
+      return { url: trimmed };
+    }
+    const number = Number(trimmed);
+    if (Number.isInteger(number) && number > 0) {
+      return { number };
+    }
+    throw new Error(
+      "coordinationPullRequest must be a pull request number, numeric string, URL, or ref object.",
+    );
+  }
+
+  return input;
+};
+
+const pullRequestRefForGh = (
+  ref: IntegrationFinalizationPullRequestRef,
+): string => {
+  if (ref.url) return ref.url;
+  if (ref.number !== undefined) return String(ref.number);
+  if (ref.id) return ref.id;
+  throw new Error(
+    "coordinationPullRequest must include a pull request number, URL, or id.",
+  );
+};
+
+const formatIntegrationFinalizationReportComment = (
+  report: IntegrationFinalizationReport,
+): string => {
+  const headline =
+    report.outcome === "pending"
+      ? "Integration Finalization pending"
+      : report.outcome === "finalization-needs-attention"
+        ? "Integration Finalization needs attention"
+        : "Integration Finalization finalized";
+
+  return [
+    `## ${headline}`,
+    "",
+    report.summary,
+    "",
+    "This finalization report is attached to the coordination PR. Finalization needs attention is not a needs-attention Task outcome for child Tasks.",
+    "",
+    "```json",
+    JSON.stringify(
+      {
+        kind: "sandcastle-integration-finalization-report",
+        version: 1,
+        outcome: report.outcome,
+        reason: report.reason,
+        coordinationPullRequest: report.coordinationPullRequest,
+        targetBranch: report.targetBranch,
+        landedCommit: report.landedCommit,
+        acceptedTasks: report.acceptedTasks,
+        finalizedTasks: report.finalizedTasks,
+      },
+      null,
+      2,
+    ),
+    "```",
+  ].join("\n");
+};
+
+export class GitHubIntegrationFinalizationPullRequestAdapter implements IntegrationFinalizationCoordinationPullRequestPort {
+  readonly #gh: GitHubCommandRunner;
+
+  constructor(options: GitHubIntegrationFinalizationAdapterOptions = {}) {
+    this.#gh =
+      options.gh ??
+      ((args) =>
+        execGh(withRepo(args, options.repo), {
+          cwd: options.cwd,
+          env: options.env,
+        }));
+  }
+
+  async load(
+    ref: IntegrationFinalizationPullRequestRef,
+  ): Promise<IntegrationFinalizationCoordinationPullRequest> {
+    const pullRequest = JSON.parse(
+      await this.#gh([
+        "pr",
+        "view",
+        pullRequestRefForGh(ref),
+        "--json",
+        GITHUB_PR_VIEW_FIELDS,
+      ]),
+    ) as GitHubPullRequestView;
+
+    const merged =
+      Boolean(pullRequest.mergedAt) || pullRequest.state === "MERGED";
+
+    return {
+      id: String(pullRequest.number),
+      number: pullRequest.number,
+      url: pullRequest.url,
+      state: pullRequest.state === "OPEN" ? "open" : "closed",
+      merged,
+      body: pullRequest.body,
+      landedCommit: pullRequest.mergeCommit?.oid,
+      headBranch: pullRequest.headRefName,
+      baseBranch: pullRequest.baseRefName,
+      comments: pullRequest.comments ?? [],
+    };
+  }
+}
+
+export class GitHubIntegrationFinalizationReporterAdapter implements IntegrationFinalizationReporterPort {
+  readonly #gh: GitHubCommandRunner;
+  readonly #reportPullRequest?: IntegrationFinalizationPullRequestRef;
+
+  constructor(options: GitHubIntegrationFinalizationAdapterOptions = {}) {
+    this.#reportPullRequest = options.reportPullRequest;
+    this.#gh =
+      options.gh ??
+      ((args) =>
+        execGh(withRepo(args, options.repo), {
+          cwd: options.cwd,
+          env: options.env,
+        }));
+  }
+
+  async report(report: IntegrationFinalizationReport): Promise<void> {
+    await this.#gh([
+      "pr",
+      "comment",
+      pullRequestRefForGh(
+        this.#reportPullRequest ?? report.coordinationPullRequest,
+      ),
+      "--body",
+      formatIntegrationFinalizationReportComment(report),
+    ]);
+  }
+}
+
+class DeferredGitHubIntegrationFinalizationLandingProofAdapter implements IntegrationFinalizationLandingProofPort {
+  async prove({ targetBranch, landedCommit }: TargetBranchLandingProofOptions) {
+    return {
+      passed: false,
+      summary: `Integration Finalization needs attention because GitHub target-branch landing proof for ${landedCommit} on ${targetBranch} is not implemented in this slice.`,
+    };
+  }
+}
+
+class DeferredGitHubIntegrationFinalizationBacklogAdapter implements IntegrationFinalizationBacklogPort {
+  async loadTaskState(): Promise<AcceptedForIntegrationTaskState> {
+    return { state: "other" };
+  }
+
+  async markTaskDone(): Promise<void> {
+    throw new Error(
+      "GitHub child Task done/close mutations are implemented by a later Integration Finalization slice.",
+    );
+  }
+}
+
+export const finalizeIntegration = async (
+  options: GitHubIntegrationFinalizationOptions,
+): Promise<IntegrationFinalizationResult> => {
+  const coordinationPullRequest = toPullRequestRef(
+    options.coordinationPullRequest,
+  );
+  const gh = (args: string[]) =>
+    options.gh
+      ? options.gh(withRepo(args, options.repo))
+      : execGh(withRepo(args, options.repo), {
+          cwd: options.cwd,
+          env: options.env,
+        });
+  const adapterOptions = {
+    ...options,
+    gh,
+    reportPullRequest: coordinationPullRequest,
+  };
+
+  return runIntegrationFinalization({
+    coordinationPullRequest,
+    ports: {
+      coordinationPullRequests:
+        new GitHubIntegrationFinalizationPullRequestAdapter(adapterOptions),
+      landingProof:
+        new DeferredGitHubIntegrationFinalizationLandingProofAdapter(),
+      backlog: new DeferredGitHubIntegrationFinalizationBacklogAdapter(),
+      reporter: new GitHubIntegrationFinalizationReporterAdapter(
+        adapterOptions,
+      ),
+    },
+  });
+};

@@ -10,6 +10,12 @@ export interface IntegrationFinalizationPullRequestRef {
   readonly url?: string;
 }
 
+export interface IntegrationFinalizationCoordinationPullRequestComment {
+  readonly body: string;
+  readonly createdAt?: string;
+  readonly author?: { readonly login: string };
+}
+
 export interface IntegrationFinalizationCoordinationPullRequest {
   readonly id?: string;
   readonly number?: number;
@@ -18,6 +24,9 @@ export interface IntegrationFinalizationCoordinationPullRequest {
   readonly merged: boolean;
   readonly body?: string;
   readonly landedCommit?: string;
+  readonly headBranch?: string;
+  readonly baseBranch?: string;
+  readonly comments?: readonly IntegrationFinalizationCoordinationPullRequestComment[];
 }
 
 export interface IntegrationFinalizationCoordinationPullRequestPort {
@@ -137,7 +146,9 @@ const parseManifestForReportFacts = (
   coordinationPullRequest: IntegrationFinalizationCoordinationPullRequest,
 ): CoordinationManifest | undefined => {
   try {
-    return parseCoordinationManifestFromBody(coordinationPullRequest.body ?? "");
+    return parseCoordinationManifestFromBody(
+      coordinationPullRequest.body ?? "",
+    );
   } catch {
     return undefined;
   }

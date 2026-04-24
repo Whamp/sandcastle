@@ -67,11 +67,22 @@ export {
 } from "./ImplementationCoordination.js";
 export { renderImplementationCoordinationReport } from "./ImplementationCoordinationReport.js";
 export { runIntegrationFinalization } from "./IntegrationFinalization.js";
+export {
+  finalizeIntegration,
+  GitHubIntegrationFinalizationPullRequestAdapter,
+  GitHubIntegrationFinalizationReporterAdapter,
+} from "./GitHubIntegrationFinalization.js";
+export type {
+  GitHubIntegrationFinalizationAdapterOptions,
+  GitHubIntegrationFinalizationOptions,
+  GitHubIntegrationFinalizationPullRequestInput,
+} from "./GitHubIntegrationFinalization.js";
 export type {
   AcceptedForIntegrationTaskState,
   AtomicIntegrationFinalizationDecision,
   IntegrationFinalizationBacklogPort,
   IntegrationFinalizationCoordinationPullRequest,
+  IntegrationFinalizationCoordinationPullRequestComment,
   IntegrationFinalizationCoordinationPullRequestPort,
   IntegrationFinalizationLandingProofPort,
   IntegrationFinalizationOptions,
