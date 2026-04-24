@@ -80,6 +80,7 @@ export type {
   IntegrationFinalizationPullRequestRef,
   IntegrationFinalizationReason,
   IntegrationFinalizationReport,
+  IntegrationFinalizationReportCoordinationPullRequest,
   IntegrationFinalizationReporterPort,
   IntegrationFinalizationResult,
   MarkDoneOutcome,

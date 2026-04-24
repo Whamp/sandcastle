@@ -1,5 +1,6 @@
 import {
   parseCoordinationManifestFromBody,
+  type CoordinationManifest,
   type CoordinationManifestAcceptedTask,
 } from "./CoordinationManifest.js";
 
@@ -11,6 +12,7 @@ export interface IntegrationFinalizationPullRequestRef {
 
 export interface IntegrationFinalizationCoordinationPullRequest {
   readonly id?: string;
+  readonly number?: number;
   readonly url?: string;
   readonly state: "open" | "closed";
   readonly merged: boolean;
@@ -75,25 +77,92 @@ export type IntegrationFinalizationReason =
   | "accepted-task-state-inconsistent"
   | "finalized";
 
+export interface IntegrationFinalizationReportCoordinationPullRequest {
+  readonly id?: string;
+  readonly number?: number;
+  readonly url?: string;
+}
+
 export interface IntegrationFinalizationReport {
   readonly outcome: IntegrationFinalizationOutcome;
   readonly reason: IntegrationFinalizationReason;
   readonly summary: string;
+  readonly coordinationPullRequest: IntegrationFinalizationReportCoordinationPullRequest;
+  readonly targetBranch?: string;
+  readonly landedCommit?: string;
+  readonly acceptedTasks: readonly CoordinationManifestAcceptedTask[];
+  readonly finalizedTasks: readonly CoordinationManifestAcceptedTask[];
 }
+
+interface IntegrationFinalizationReportFacts {
+  readonly coordinationPullRequest: IntegrationFinalizationReportCoordinationPullRequest;
+  readonly manifest?: CoordinationManifest;
+  readonly landedCommit?: string;
+}
+
+const withDefinedFields = <T extends Record<string, unknown>>(value: T): T =>
+  Object.fromEntries(
+    Object.entries(value).filter(([, entryValue]) => entryValue !== undefined),
+  ) as T;
+
+const buildCoordinationPullRequestReportRef = (
+  requestedRef: IntegrationFinalizationPullRequestRef,
+  coordinationPullRequest: IntegrationFinalizationCoordinationPullRequest,
+): IntegrationFinalizationReportCoordinationPullRequest =>
+  withDefinedFields({
+    id: coordinationPullRequest.id ?? requestedRef.id,
+    number: coordinationPullRequest.number ?? requestedRef.number,
+    url: coordinationPullRequest.url ?? requestedRef.url,
+  });
+
+const buildReport = (
+  report: Pick<
+    IntegrationFinalizationReport,
+    "outcome" | "reason" | "summary" | "finalizedTasks"
+  >,
+  facts: IntegrationFinalizationReportFacts,
+): IntegrationFinalizationReport =>
+  withDefinedFields({
+    outcome: report.outcome,
+    reason: report.reason,
+    summary: report.summary,
+    coordinationPullRequest: facts.coordinationPullRequest,
+    targetBranch: facts.manifest?.targetBranch,
+    landedCommit: facts.landedCommit,
+    acceptedTasks: facts.manifest?.acceptedTasks ?? [],
+    finalizedTasks: report.finalizedTasks,
+  });
+
+const parseManifestForReportFacts = (
+  coordinationPullRequest: IntegrationFinalizationCoordinationPullRequest,
+): CoordinationManifest | undefined => {
+  try {
+    return parseCoordinationManifestFromBody(coordinationPullRequest.body ?? "");
+  } catch {
+    return undefined;
+  }
+};
 
 const reportAndReturnNeedsAttention = async (
   ports: IntegrationFinalizationPorts,
+  facts: IntegrationFinalizationReportFacts,
   reason: Exclude<
     IntegrationFinalizationReason,
     "coordination-pr-open" | "finalized"
   >,
   summary: string,
 ): Promise<IntegrationFinalizationResult> => {
-  await ports.reporter.report({
-    outcome: "finalization-needs-attention",
-    reason,
-    summary,
-  });
+  await ports.reporter.report(
+    buildReport(
+      {
+        outcome: "finalization-needs-attention",
+        reason,
+        summary,
+        finalizedTasks: [],
+      },
+      facts,
+    ),
+  );
   return {
     outcome: "finalization-needs-attention",
     reason,
@@ -138,14 +207,28 @@ export const runIntegrationFinalization = async (
     await options.ports.coordinationPullRequests.load(
       options.coordinationPullRequest,
     );
+  const reportFacts: IntegrationFinalizationReportFacts = {
+    coordinationPullRequest: buildCoordinationPullRequestReportRef(
+      options.coordinationPullRequest,
+      coordinationPullRequest,
+    ),
+    manifest: parseManifestForReportFacts(coordinationPullRequest),
+    landedCommit: coordinationPullRequest.landedCommit,
+  };
 
   if (coordinationPullRequest.state === "open") {
-    await options.ports.reporter.report({
-      outcome: "pending",
-      reason: "coordination-pr-open",
-      summary:
-        "Integration Finalization is pending because the coordination PR is still open.",
-    });
+    await options.ports.reporter.report(
+      buildReport(
+        {
+          outcome: "pending",
+          reason: "coordination-pr-open",
+          summary:
+            "Integration Finalization is pending because the coordination PR is still open.",
+          finalizedTasks: [],
+        },
+        reportFacts,
+      ),
+    );
     return {
       outcome: "pending",
       reason: "coordination-pr-open",
@@ -156,6 +239,7 @@ export const runIntegrationFinalization = async (
   if (!coordinationPullRequest.merged) {
     return reportAndReturnNeedsAttention(
       options.ports,
+      reportFacts,
       "coordination-pr-closed-unmerged",
       "Integration Finalization needs attention because the coordination PR was closed without merging.",
     );
@@ -169,6 +253,7 @@ export const runIntegrationFinalization = async (
   } catch (error) {
     return reportAndReturnNeedsAttention(
       options.ports,
+      reportFacts,
       "coordination-manifest-invalid",
       error instanceof Error ? error.message : String(error),
     );
@@ -177,6 +262,7 @@ export const runIntegrationFinalization = async (
   if (manifest === undefined) {
     return reportAndReturnNeedsAttention(
       options.ports,
+      reportFacts,
       "coordination-manifest-missing",
       "Integration Finalization needs attention because the coordination PR does not contain a Sandcastle coordination manifest.",
     );
@@ -185,6 +271,7 @@ export const runIntegrationFinalization = async (
   if (!coordinationPullRequest.landedCommit) {
     return reportAndReturnNeedsAttention(
       options.ports,
+      { ...reportFacts, manifest },
       "target-branch-landing-proof-failed",
       "Integration Finalization needs attention because the merged coordination PR did not provide a landed commit to prove on the target branch.",
     );
@@ -198,6 +285,7 @@ export const runIntegrationFinalization = async (
   if (!landingProof.passed) {
     return reportAndReturnNeedsAttention(
       options.ports,
+      { ...reportFacts, manifest },
       "target-branch-landing-proof-failed",
       landingProof.summary,
     );
@@ -216,6 +304,7 @@ export const runIntegrationFinalization = async (
   if (inconsistentTask) {
     return reportAndReturnNeedsAttention(
       options.ports,
+      { ...reportFacts, manifest },
       "accepted-task-state-inconsistent",
       `Integration Finalization needs attention because accepted task ${inconsistentTask.task.id} is ${inconsistentTask.state.state}, not accepted for integration.`,
     );
@@ -237,11 +326,17 @@ export const runIntegrationFinalization = async (
     });
   }
 
-  await options.ports.reporter.report({
-    outcome: "finalized",
-    reason: "finalized",
-    summary: `Integration Finalization marked ${decision.acceptedTasks.length} accepted for integration task(s) done after proving ${decision.landedCommit} landed on ${decision.targetBranch}.`,
-  });
+  await options.ports.reporter.report(
+    buildReport(
+      {
+        outcome: "finalized",
+        reason: "finalized",
+        summary: `Integration Finalization marked ${decision.acceptedTasks.length} accepted for integration task(s) done after proving ${decision.landedCommit} landed on ${decision.targetBranch}.`,
+        finalizedTasks: decision.acceptedTasks,
+      },
+      { ...reportFacts, manifest },
+    ),
+  );
 
   return {
     outcome: "finalized",

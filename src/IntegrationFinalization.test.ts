@@ -48,8 +48,10 @@ const manifestBody = (
 class FakeFinalizationPorts {
   readonly events: string[] = [];
   readonly doneOutcomes: unknown[] = [];
+  readonly reports: unknown[] = [];
   pullRequest: IntegrationFinalizationCoordinationPullRequest = {
     id: "pr-21",
+    number: 21,
     url: "https://example.test/pull/21",
     state: "open",
     merged: false,
@@ -87,6 +89,7 @@ class FakeFinalizationPorts {
       reporter: {
         report: async (report) => {
           this.events.push(`report:${report.outcome}`);
+          this.reports.push(report);
         },
       },
     };
@@ -111,6 +114,22 @@ describe("runIntegrationFinalization", () => {
     expect(result.reason).toBe("coordination-pr-open");
     expect(result.finalizedTasks).toEqual([]);
     expect(fake.events).toEqual(["pr:load:pr-21", "report:pending"]);
+    expect(fake.reports).toEqual([
+      {
+        outcome: "pending",
+        reason: "coordination-pr-open",
+        summary:
+          "Integration Finalization is pending because the coordination PR is still open.",
+        coordinationPullRequest: {
+          id: "pr-21",
+          number: 21,
+          url: "https://example.test/pull/21",
+        },
+        targetBranch: "main",
+        acceptedTasks: [acceptedTask],
+        finalizedTasks: [],
+      },
+    ]);
   });
 
   it("records finalization needs attention and mutates no child tasks when the coordination PR is closed unmerged", async () => {
@@ -194,6 +213,58 @@ describe("runIntegrationFinalization", () => {
       "proof:main:abc123",
       "report:finalization-needs-attention",
     ]);
+    expect(fake.reports).toEqual([
+      {
+        outcome: "finalization-needs-attention",
+        reason: "target-branch-landing-proof-failed",
+        summary: "abc123 is not an ancestor of main",
+        coordinationPullRequest: {
+          id: "pr-21",
+          number: 21,
+          url: "https://example.test/pull/21",
+        },
+        targetBranch: "main",
+        landedCommit: "abc123",
+        acceptedTasks: [acceptedTask],
+        finalizedTasks: [],
+      },
+    ]);
+  });
+
+  it("records landing proof failure and mutates no child tasks when a merged coordination PR has no landed commit", async () => {
+    const fake = new FakeFinalizationPorts();
+    fake.pullRequest = {
+      ...fake.pullRequest,
+      state: "closed",
+      merged: true,
+    };
+
+    const result = await fake.run();
+
+    expect(result.outcome).toBe("finalization-needs-attention");
+    expect(result.reason).toBe("target-branch-landing-proof-failed");
+    expect(result.finalizedTasks).toEqual([]);
+    expect(fake.doneOutcomes).toEqual([]);
+    expect(fake.events).toEqual([
+      "pr:load:pr-21",
+      "report:finalization-needs-attention",
+    ]);
+    expect(fake.reports).toEqual([
+      {
+        outcome: "finalization-needs-attention",
+        reason: "target-branch-landing-proof-failed",
+        summary:
+          "Integration Finalization needs attention because the merged coordination PR did not provide a landed commit to prove on the target branch.",
+        coordinationPullRequest: {
+          id: "pr-21",
+          number: 21,
+          url: "https://example.test/pull/21",
+        },
+        targetBranch: "main",
+        acceptedTasks: [acceptedTask],
+        finalizedTasks: [],
+      },
+    ]);
   });
 
   it("records finalization needs attention and mutates no child tasks when an accepted child task state is inconsistent", async () => {
@@ -273,6 +344,23 @@ describe("runIntegrationFinalization", () => {
       "backlog:done:#23",
       "backlog:done:#24",
       "report:finalized",
+    ]);
+    expect(fake.reports).toEqual([
+      {
+        outcome: "finalized",
+        reason: "finalized",
+        summary:
+          "Integration Finalization marked 2 accepted for integration task(s) done after proving abc123 landed on main.",
+        coordinationPullRequest: {
+          id: "pr-21",
+          number: 21,
+          url: "https://example.test/pull/21",
+        },
+        targetBranch: "main",
+        landedCommit: "abc123",
+        acceptedTasks: [acceptedTask, secondAcceptedTask],
+        finalizedTasks: [acceptedTask, secondAcceptedTask],
+      },
     ]);
   });
 });
