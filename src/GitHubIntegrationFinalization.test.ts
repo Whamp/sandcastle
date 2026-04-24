@@ -80,6 +80,43 @@ const acceptedForIntegrationComment = (
   createdAt: "2026-04-24T10:30:00.000Z",
 });
 
+const lifecycleComment = (
+  issueNumber: number,
+  event: TaskCoordinationComment["event"],
+  recordedAt: string,
+  overrides: Partial<TaskCoordinationComment> = {},
+): GitHubIssueComment => ({
+  body: formatTaskCoordinationComment({
+    kind: "sandcastle-task-coordination",
+    version: 1,
+    event,
+    runId: `${event}-${issueNumber}`,
+    executionMode: "host",
+    recordedAt,
+    ...overrides,
+  }),
+  createdAt: recordedAt,
+});
+
+const doneComment = (
+  issueNumber: number,
+  branch: string,
+  landedCommit: string,
+): GitHubIssueComment => ({
+  body: formatTaskCoordinationComment({
+    kind: "sandcastle-task-coordination",
+    version: 1,
+    event: "done",
+    runId: `done-${issueNumber}`,
+    executionMode: "host",
+    recordedAt: "2026-04-24T11:30:00.000Z",
+    branch,
+    commits: [landedCommit],
+    reason: `Accepted task landed at ${landedCommit}.`,
+  }),
+  createdAt: "2026-04-24T11:30:00.000Z",
+});
+
 const createFakeGh = (
   pullRequests: FakePullRequest[],
   issues: FakeIssue[] = [],
@@ -269,6 +306,337 @@ describe("GitHubIntegrationFinalizationLandingProofAdapter", () => {
 });
 
 describe("finalizeIntegration GitHub path", () => {
+  it("treats repeated finalization of already-closed child issues with matching done events as already finalized without duplicate done events", async () => {
+    const { repo, landedCommit } = await setupMergedRepo();
+    try {
+      const branch = "sandcastle/task/23-finalization-core";
+      const childIssue: FakeIssue = {
+        number: 23,
+        title: "Already finalized child task",
+        body: "## Parent\n\n#21",
+        state: "CLOSED",
+        comments: [
+          acceptedForIntegrationComment(23, branch),
+          doneComment(23, branch, landedCommit),
+        ],
+      };
+      const pullRequest: FakePullRequest = {
+        number: 32,
+        url: "https://github.com/Whamp/sandcastle/pull/32",
+        state: "MERGED",
+        body: manifestBody([
+          {
+            task: { id: "#23", title: childIssue.title },
+            branch,
+          },
+        ]),
+        headRefName: "sandcastle/coordinator/21",
+        baseRefName: "main",
+        mergedAt: "2026-04-24T12:00:00.000Z",
+        mergeCommit: { oid: landedCommit },
+        comments: [],
+      };
+      const { gh, commands } = createFakeGh([pullRequest], [childIssue]);
+
+      const result = await finalizeIntegration({
+        coordinationPullRequest: 32,
+        repo: "Whamp/sandcastle",
+        cwd: repo,
+        gh,
+      });
+
+      expect(result.outcome).toBe("already-finalized");
+      expect(result.reason).toBe("already-finalized");
+      expect(result.finalizedTasks.map((task) => task.id)).toEqual(["#23"]);
+      expect(childIssue.state).toBe("CLOSED");
+      expect(doneEvents(childIssue)).toHaveLength(1);
+      expect(childIssueMutationCommands(commands)).toEqual([]);
+      expect(pullRequest.comments[0]!.body).toContain(
+        "Integration Finalization already finalized",
+      );
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("closes a child issue with a matching done event but still open without writing a duplicate done event", async () => {
+    const { repo, landedCommit } = await setupMergedRepo();
+    try {
+      const branch = "sandcastle/task/23-finalization-core";
+      const childIssue: FakeIssue = {
+        number: 23,
+        title: "Done but still open child task",
+        body: "## Parent\n\n#21",
+        state: "OPEN",
+        comments: [
+          acceptedForIntegrationComment(23, branch),
+          doneComment(23, branch, landedCommit),
+        ],
+      };
+      const pullRequest: FakePullRequest = {
+        number: 33,
+        url: "https://github.com/Whamp/sandcastle/pull/33",
+        state: "MERGED",
+        body: manifestBody([
+          {
+            task: { id: "#23", title: childIssue.title },
+            branch,
+          },
+        ]),
+        headRefName: "sandcastle/coordinator/21",
+        baseRefName: "main",
+        mergedAt: "2026-04-24T12:00:00.000Z",
+        mergeCommit: { oid: landedCommit },
+        comments: [],
+      };
+      const { gh, commands } = createFakeGh([pullRequest], [childIssue]);
+
+      const result = await finalizeIntegration({
+        coordinationPullRequest: 33,
+        repo: "Whamp/sandcastle",
+        cwd: repo,
+        gh,
+      });
+
+      expect(result.outcome).toBe("finalized");
+      expect(result.reason).toBe("finalized");
+      expect(result.finalizedTasks.map((task) => task.id)).toEqual(["#23"]);
+      expect(childIssue.state).toBe("CLOSED");
+      expect(doneEvents(childIssue)).toHaveLength(1);
+      expect(childIssueMutationCommands(commands)).toEqual([
+        ["issue", "close", "23", "--repo", "Whamp/sandcastle"],
+      ]);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("can run finalization twice for the same proven coordination PR without duplicate done events", async () => {
+    const { repo, landedCommit } = await setupMergedRepo();
+    try {
+      const branch = "sandcastle/task/23-finalization-core";
+      const childIssue: FakeIssue = {
+        number: 23,
+        title: "Finalize twice child task",
+        body: "## Parent\n\n#21",
+        state: "OPEN",
+        comments: [acceptedForIntegrationComment(23, branch)],
+      };
+      const pullRequest: FakePullRequest = {
+        number: 34,
+        url: "https://github.com/Whamp/sandcastle/pull/34",
+        state: "MERGED",
+        body: manifestBody([
+          {
+            task: { id: "#23", title: childIssue.title },
+            branch,
+          },
+        ]),
+        headRefName: "sandcastle/coordinator/21",
+        baseRefName: "main",
+        mergedAt: "2026-04-24T12:00:00.000Z",
+        mergeCommit: { oid: landedCommit },
+        comments: [],
+      };
+      const { gh } = createFakeGh([pullRequest], [childIssue]);
+
+      const first = await finalizeIntegration({
+        coordinationPullRequest: 34,
+        repo: "Whamp/sandcastle",
+        cwd: repo,
+        gh,
+      });
+      const second = await finalizeIntegration({
+        coordinationPullRequest: 34,
+        repo: "Whamp/sandcastle",
+        cwd: repo,
+        gh,
+      });
+
+      expect(first.outcome).toBe("finalized");
+      expect(second.outcome).toBe("already-finalized");
+      expect(childIssue.state).toBe("CLOSED");
+      expect(doneEvents(childIssue)).toHaveLength(1);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("returns retry-needed when the PR finalization report comment fails after child issue mutations, then retries without duplicate done events", async () => {
+    const { repo, landedCommit } = await setupMergedRepo();
+    try {
+      const branch = "sandcastle/task/23-finalization-core";
+      const childIssue: FakeIssue = {
+        number: 23,
+        title: "Child finalized before report failure",
+        body: "## Parent\n\n#21",
+        state: "OPEN",
+        comments: [acceptedForIntegrationComment(23, branch)],
+      };
+      const pullRequest: FakePullRequest = {
+        number: 37,
+        url: "https://github.com/Whamp/sandcastle/pull/37",
+        state: "MERGED",
+        body: manifestBody([
+          {
+            task: { id: "#23", title: childIssue.title },
+            branch,
+          },
+        ]),
+        headRefName: "sandcastle/coordinator/21",
+        baseRefName: "main",
+        mergedAt: "2026-04-24T12:00:00.000Z",
+        mergeCommit: { oid: landedCommit },
+        comments: [],
+      };
+      const fake = createFakeGh([pullRequest], [childIssue]);
+      let failReportComment = true;
+      const gh = async (args: string[]) => {
+        if (
+          failReportComment &&
+          args[0] === "pr" &&
+          args[1] === "comment" &&
+          args[2] === "37"
+        ) {
+          failReportComment = false;
+          fake.commands.push(args);
+          throw new Error("simulated PR report comment failure");
+        }
+
+        return fake.gh(args);
+      };
+
+      const first = await finalizeIntegration({
+        coordinationPullRequest: 37,
+        repo: "Whamp/sandcastle",
+        cwd: repo,
+        gh,
+      });
+
+      expect(first.outcome).toBe("retry-needed");
+      expect(first.reason).toBe("incomplete-write-retry-needed");
+      expect(first.finalizedTasks.map((task) => task.id)).toEqual(["#23"]);
+      expect(first.newlyFinalizedTasks?.map((task) => task.id)).toEqual([
+        "#23",
+      ]);
+      expect(first.incompleteTasks).toEqual([]);
+      expect(childIssue.state).toBe("CLOSED");
+      expect(doneEvents(childIssue)).toHaveLength(1);
+      expect(pullRequest.comments).toHaveLength(0);
+
+      const second = await finalizeIntegration({
+        coordinationPullRequest: 37,
+        repo: "Whamp/sandcastle",
+        cwd: repo,
+        gh,
+      });
+
+      expect(second.outcome).toBe("already-finalized");
+      expect(childIssue.state).toBe("CLOSED");
+      expect(doneEvents(childIssue)).toHaveLength(1);
+      expect(pullRequest.comments).toHaveLength(1);
+      expect(pullRequest.comments[0]!.body).toContain(
+        "Integration Finalization already finalized",
+      );
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("returns retry-needed after a partial GitHub write failure and a later retry finishes the remaining child issue without duplicate done events", async () => {
+    const { repo, landedCommit } = await setupMergedRepo();
+    try {
+      const firstBranch = "sandcastle/task/23-finalization-core";
+      const secondBranch = "sandcastle/task/24-github-adapters";
+      const childIssues: FakeIssue[] = [
+        {
+          number: 23,
+          title: "Partial write first child task",
+          body: "## Parent\n\n#21",
+          state: "OPEN",
+          comments: [acceptedForIntegrationComment(23, firstBranch)],
+        },
+        {
+          number: 24,
+          title: "Partial write second child task",
+          body: "## Parent\n\n#21",
+          state: "OPEN",
+          comments: [acceptedForIntegrationComment(24, secondBranch)],
+        },
+      ];
+      const pullRequest: FakePullRequest = {
+        number: 35,
+        url: "https://github.com/Whamp/sandcastle/pull/35",
+        state: "MERGED",
+        body: manifestBody([
+          {
+            task: { id: "#23", title: childIssues[0]!.title },
+            branch: firstBranch,
+          },
+          {
+            task: { id: "#24", title: childIssues[1]!.title },
+            branch: secondBranch,
+          },
+        ]),
+        headRefName: "sandcastle/coordinator/21",
+        baseRefName: "main",
+        mergedAt: "2026-04-24T12:00:00.000Z",
+        mergeCommit: { oid: landedCommit },
+        comments: [],
+      };
+      const fake = createFakeGh([pullRequest], childIssues);
+      let failCloseForSecondIssue = true;
+      const gh = async (args: string[]) => {
+        if (
+          failCloseForSecondIssue &&
+          args[0] === "issue" &&
+          args[1] === "close" &&
+          args[2] === "24"
+        ) {
+          failCloseForSecondIssue = false;
+          fake.commands.push(args);
+          throw new Error("simulated close failure for #24");
+        }
+
+        return fake.gh(args);
+      };
+
+      const first = await finalizeIntegration({
+        coordinationPullRequest: 35,
+        repo: "Whamp/sandcastle",
+        cwd: repo,
+        gh,
+      });
+
+      expect(first.outcome).toBe("retry-needed");
+      expect(first.reason).toBe("incomplete-write-retry-needed");
+      expect(childIssues.map((issue) => issue.state)).toEqual([
+        "CLOSED",
+        "OPEN",
+      ]);
+      expect(doneEvents(childIssues[0]!)).toHaveLength(1);
+      expect(doneEvents(childIssues[1]!)).toHaveLength(1);
+
+      const second = await finalizeIntegration({
+        coordinationPullRequest: 35,
+        repo: "Whamp/sandcastle",
+        cwd: repo,
+        gh,
+      });
+
+      expect(second.outcome).toBe("finalized");
+      expect(second.reason).toBe("finalized");
+      expect(childIssues.map((issue) => issue.state)).toEqual([
+        "CLOSED",
+        "CLOSED",
+      ]);
+      expect(doneEvents(childIssues[0]!)).toHaveLength(1);
+      expect(doneEvents(childIssues[1]!)).toHaveLength(1);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
   it("finalizes a merged coordination PR only after target-branch landing proof and accepted child task cross-check", async () => {
     const { repo, landedCommit } = await setupMergedRepo();
     try {
@@ -621,6 +989,140 @@ describe("finalizeIntegration GitHub path", () => {
       expect(pullRequest.comments[0]!.body).toContain(
         "accepted-task-state-inconsistent",
       );
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("does not treat a stale historical accepted-for-integration event as current when a later lifecycle event contradicts it", async () => {
+    const { repo, landedCommit } = await setupMergedRepo();
+    try {
+      const branch = "sandcastle/task/23-finalization-core";
+      const childIssues: FakeIssue[] = [
+        {
+          number: 23,
+          title: "Accepted child task later moved to needs attention",
+          body: "## Parent\n\n#21",
+          state: "OPEN",
+          comments: [
+            acceptedForIntegrationComment(23, branch),
+            lifecycleComment(
+              23,
+              "needs-attention",
+              "2026-04-24T11:00:00.000Z",
+              {
+                branch,
+                reason: "A later review contradicted the accepted state.",
+              },
+            ),
+          ],
+        },
+      ];
+      const pullRequest: FakePullRequest = {
+        number: 36,
+        url: "https://github.com/Whamp/sandcastle/pull/36",
+        state: "MERGED",
+        body: manifestBody([
+          {
+            task: { id: "#23", title: childIssues[0]!.title },
+            branch,
+          },
+        ]),
+        headRefName: "sandcastle/coordinator/21",
+        baseRefName: "main",
+        mergedAt: "2026-04-24T12:00:00.000Z",
+        mergeCommit: { oid: landedCommit },
+        comments: [],
+      };
+      const { gh, commands } = createFakeGh([pullRequest], childIssues);
+
+      const result = await finalizeIntegration({
+        coordinationPullRequest: 36,
+        repo: "Whamp/sandcastle",
+        cwd: repo,
+        gh,
+      });
+
+      expect(result.outcome).toBe("finalization-needs-attention");
+      expect(result.reason).toBe("accepted-task-state-inconsistent");
+      expect(childIssues[0]!.state).toBe("OPEN");
+      expect(doneEvents(childIssues[0]!)).toEqual([]);
+      expect(childIssueMutationCommands(commands)).toEqual([]);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("prefers GitHub comment createdAt order over embedded recordedAt when deciding the current lifecycle event", async () => {
+    const { repo, landedCommit } = await setupMergedRepo();
+    try {
+      const branch = "sandcastle/task/23-finalization-core";
+      const childIssues: FakeIssue[] = [
+        {
+          number: 23,
+          title: "Accepted child task with a skewed stale timestamp",
+          body: "## Parent\n\n#21",
+          state: "OPEN",
+          comments: [
+            {
+              body: formatTaskCoordinationComment({
+                kind: "sandcastle-task-coordination",
+                version: 1,
+                event: "accepted-for-integration",
+                runId: "accepted-23-skewed",
+                executionMode: "host",
+                recordedAt: "2099-01-01T00:00:00.000Z",
+                branch,
+                reason: "Accepted into the coordination PR with a skewed clock.",
+              }),
+              createdAt: "2026-04-24T10:30:00.000Z",
+            },
+            {
+              body: formatTaskCoordinationComment({
+                kind: "sandcastle-task-coordination",
+                version: 1,
+                event: "needs-attention",
+                runId: "needs-attention-23-current",
+                executionMode: "host",
+                recordedAt: "2026-04-24T09:00:00.000Z",
+                branch,
+                reason: "A later GitHub comment contradicted the accepted state.",
+              }),
+              createdAt: "2026-04-24T11:00:00.000Z",
+            },
+          ],
+        },
+      ];
+      const pullRequest: FakePullRequest = {
+        number: 38,
+        url: "https://github.com/Whamp/sandcastle/pull/38",
+        state: "MERGED",
+        body: manifestBody([
+          {
+            task: { id: "#23", title: childIssues[0]!.title },
+            branch,
+          },
+        ]),
+        headRefName: "sandcastle/coordinator/21",
+        baseRefName: "main",
+        mergedAt: "2026-04-24T12:00:00.000Z",
+        mergeCommit: { oid: landedCommit },
+        comments: [],
+      };
+      const { gh, commands } = createFakeGh([pullRequest], childIssues);
+
+      const result = await finalizeIntegration({
+        coordinationPullRequest: 38,
+        repo: "Whamp/sandcastle",
+        cwd: repo,
+        gh,
+      });
+
+      expect(result.outcome).toBe("finalization-needs-attention");
+      expect(result.reason).toBe("accepted-task-state-inconsistent");
+      expect(childIssues[0]!.state).toBe("OPEN");
+      expect(doneEvents(childIssues[0]!)).toEqual([]);
+      expect(childIssueMutationCommands(commands)).toEqual([]);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }

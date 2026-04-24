@@ -399,6 +399,8 @@ describe("runIntegrationFinalization", () => {
         landedCommit: "abc123",
         acceptedTasks: [acceptedTask, secondAcceptedTask],
         finalizedTasks: [acceptedTask, secondAcceptedTask],
+        alreadyFinalizedTasks: [],
+        newlyFinalizedTasks: [acceptedTask, secondAcceptedTask],
       },
     ]);
   });
