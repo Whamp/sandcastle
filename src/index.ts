@@ -56,6 +56,25 @@ export type {
 export { GitHubIssueBacklog } from "./GitHubIssueBacklog.js";
 export { executeNextGitHubIssueTask } from "./GitHubIssueSuccessPath.js";
 export {
+  coordinateImplementation,
+  runImplementationCoordination,
+  NO_ACCEPTED_ISSUE_BRANCH_NO_PR_REASON,
+} from "./ImplementationCoordination.js";
+export type {
+  CoordinationPullRequest,
+  CreateOrUpdateCoordinationPullRequestOptions,
+  ImplementationCoordinationBacklogPort,
+  ImplementationCoordinationOptions,
+  ImplementationCoordinationPorts,
+  ImplementationCoordinationPullRequestPort,
+  ImplementationCoordinationResult,
+  IntegratedTask,
+  MergeRecommendation,
+  ParentEffort,
+  ParentRef,
+  ScopedTask,
+} from "./ImplementationCoordination.js";
+export {
   createBindMountSandboxProvider,
   createIsolatedSandboxProvider,
 } from "./SandboxProvider.js";
