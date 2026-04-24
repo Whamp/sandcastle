@@ -67,7 +67,7 @@ const baseOptions: CreateOrUpdateCoordinationPullRequestOptions = {
 };
 
 const createFakeGh = (
-  existingPrs: Array<{ number: number; url: string }> = [],
+  existingPrs: Array<{ number: number; url: string; baseRefName?: string }> = [],
 ) => {
   const commands: string[][] = [];
   const gh = async (args: string[]): Promise<string> => {
@@ -163,7 +163,7 @@ describe("GitHubImplementationPullRequestAdapter", () => {
       "--head",
       "epic/implementation-coordination-engine",
       "--json",
-      "number,url",
+      "number,url,baseRefName",
     ]);
     expect(commands).toContainEqual([
       "pr",
@@ -183,10 +183,16 @@ describe("GitHubImplementationPullRequestAdapter", () => {
 
   it("updates an existing open PR for the coordinator branch", async () => {
     const { gh, commands } = createFakeGh([
-      { number: 20, url: "https://github.com/Whamp/sandcastle/pull/20" },
+      {
+        number: 20,
+        url: "https://github.com/Whamp/sandcastle/pull/20",
+        baseRefName: "release",
+      },
     ]);
     const adapter = new GitHubImplementationPullRequestAdapter({
       gh,
+      baseBranch: "main",
+      targetBranch: "develop",
       now: () => new Date("2026-04-24T10:00:00.000Z"),
     });
     const body = renderImplementationCoordinationReport(baseOptions);
@@ -196,12 +202,14 @@ describe("GitHubImplementationPullRequestAdapter", () => {
     expect(pr.id).toBe("20");
     expect(pr.url).toBe("https://github.com/Whamp/sandcastle/pull/20");
     expect(pr.body).toContain(body);
-    expect(
-      parseCoordinationManifestFromBody(pr.body ?? "")?.publication,
-    ).toMatchObject({
-      publishedAt: "2026-04-24T10:00:00.000Z",
-      mergeRecommendation: "do-not-recommend-merge-yet",
-      acceptedTaskCount: 1,
+    expect(parseCoordinationManifestFromBody(pr.body ?? "")).toMatchObject({
+      targetBranch: "release",
+      baseBranch: "release",
+      publication: {
+        publishedAt: "2026-04-24T10:00:00.000Z",
+        mergeRecommendation: "do-not-recommend-merge-yet",
+        acceptedTaskCount: 1,
+      },
     });
     expect(commands).toContainEqual([
       "pr",
@@ -263,7 +271,7 @@ describe("GitHubImplementationPullRequestAdapter", () => {
       version: 1,
       parentScope: { id: "#11", issueNumber: 11, title: "Parent spec" },
       coordinatorBranch: "epic/implementation-coordination-engine",
-      targetBranch: "main",
+      targetBranch: "release",
       baseBranch: "release",
       acceptedTasks: [
         {
@@ -280,6 +288,18 @@ describe("GitHubImplementationPullRequestAdapter", () => {
         acceptedTaskCount: 1,
       },
     });
+    expect(commands).toContainEqual([
+      "pr",
+      "create",
+      "--head",
+      "epic/implementation-coordination-engine",
+      "--base",
+      "release",
+      "--title",
+      "Implementation coordination: Parent spec",
+      "--body",
+      pr.body ?? "",
+    ]);
     expect(commands.flat().join(" ")).not.toContain("pr merge");
   });
 

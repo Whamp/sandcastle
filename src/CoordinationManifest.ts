@@ -150,6 +150,32 @@ const optionalNumber = (
   return fieldValue;
 };
 
+const requireNumber = (
+  value: Record<string, unknown>,
+  fieldName: string,
+  fieldLabel = fieldName,
+): number => {
+  const fieldValue = optionalNumber(value, fieldName);
+  if (fieldValue === undefined) {
+    throw new Error(
+      `Invalid Sandcastle coordination manifest: ${fieldLabel} is required.`,
+    );
+  }
+
+  return fieldValue;
+};
+
+const requirePublisher = (value: Record<string, unknown>): "sandcastle" => {
+  const publisher = requireString(value, "publisher");
+  if (publisher !== "sandcastle") {
+    throw new Error(
+      "Invalid Sandcastle coordination manifest: publication.publisher is invalid.",
+    );
+  }
+
+  return "sandcastle";
+};
+
 const requireMergeRecommendation = (
   value: Record<string, unknown>,
 ): MergeRecommendation => {
@@ -214,6 +240,31 @@ export const parseCoordinationManifest = (
     );
   }
 
+  const parsedAcceptedTasks = acceptedTasks.map((acceptedTask, index) => {
+    if (!isRecord(acceptedTask)) {
+      throw new Error(
+        `Invalid Sandcastle coordination manifest: acceptedTasks[${index}] must be an object.`,
+      );
+    }
+    return omitUndefined({
+      id: requireString(acceptedTask, "id"),
+      issueNumber: optionalNumber(acceptedTask, "issueNumber"),
+      title:
+        typeof acceptedTask.title === "string" ? acceptedTask.title : undefined,
+      branch: requireString(acceptedTask, "branch"),
+    });
+  });
+  const acceptedTaskCount = requireNumber(
+    publication,
+    "acceptedTaskCount",
+    "publication.acceptedTaskCount",
+  );
+  if (acceptedTaskCount !== parsedAcceptedTasks.length) {
+    throw new Error(
+      "Invalid Sandcastle coordination manifest: publication.acceptedTaskCount does not match acceptedTasks.",
+    );
+  }
+
   return {
     kind: COORDINATION_MANIFEST_KIND,
     version: COORDINATION_MANIFEST_VERSION,
@@ -226,27 +277,12 @@ export const parseCoordinationManifest = (
     coordinatorBranch: requireString(parsed, "coordinatorBranch"),
     targetBranch: requireString(parsed, "targetBranch"),
     baseBranch: requireString(parsed, "baseBranch"),
-    acceptedTasks: acceptedTasks.map((acceptedTask, index) => {
-      if (!isRecord(acceptedTask)) {
-        throw new Error(
-          `Invalid Sandcastle coordination manifest: acceptedTasks[${index}] must be an object.`,
-        );
-      }
-      return omitUndefined({
-        id: requireString(acceptedTask, "id"),
-        issueNumber: optionalNumber(acceptedTask, "issueNumber"),
-        title:
-          typeof acceptedTask.title === "string"
-            ? acceptedTask.title
-            : undefined,
-        branch: requireString(acceptedTask, "branch"),
-      });
-    }),
+    acceptedTasks: parsedAcceptedTasks,
     publication: {
-      publisher: "sandcastle",
+      publisher: requirePublisher(publication),
       publishedAt: requireString(publication, "publishedAt"),
       mergeRecommendation: requireMergeRecommendation(publication),
-      acceptedTaskCount: optionalNumber(publication, "acceptedTaskCount") ?? 0,
+      acceptedTaskCount,
     },
   };
 };

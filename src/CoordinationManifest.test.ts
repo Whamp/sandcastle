@@ -98,6 +98,16 @@ describe("Sandcastle coordination manifest", () => {
       '"mergeRecommendation": "recommend-merge"',
       '"mergeRecommendation": "done"',
     );
+    const invalidPublisher = renderCoordinationManifest(manifestOptions).replace(
+      '"publisher": "sandcastle"',
+      '"publisher": "other-tool"',
+    );
+    const missingAcceptedTaskCount = renderCoordinationManifest(
+      manifestOptions,
+    ).replace(/,\n    "acceptedTaskCount": 1/, "");
+    const mismatchedAcceptedTaskCount = renderCoordinationManifest(
+      manifestOptions,
+    ).replace('"acceptedTaskCount": 1', '"acceptedTaskCount": 99');
 
     expect(() => parseCoordinationManifestFromBody(invalidJson)).toThrow(
       "JSON could not be parsed",
@@ -111,6 +121,15 @@ describe("Sandcastle coordination manifest", () => {
     expect(() =>
       parseCoordinationManifestFromBody(invalidMergeRecommendation),
     ).toThrow("publication.mergeRecommendation is invalid");
+    expect(() => parseCoordinationManifestFromBody(invalidPublisher)).toThrow(
+      "publication.publisher is invalid",
+    );
+    expect(() =>
+      parseCoordinationManifestFromBody(missingAcceptedTaskCount),
+    ).toThrow("publication.acceptedTaskCount is required");
+    expect(() =>
+      parseCoordinationManifestFromBody(mismatchedAcceptedTaskCount),
+    ).toThrow("publication.acceptedTaskCount does not match acceptedTasks");
   });
 
   it("accepts unknown future fields in a supported v1 manifest", () => {
