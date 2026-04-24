@@ -120,7 +120,7 @@ You can also [create your own provider](#custom-execution-providers) using `crea
 
 Sandcastle exports a programmatic `run()` function for use in scripts, CI pipelines, or custom tooling. The examples below use `docker()`, but any execution provider (`SandboxProvider`) works in its place.
 
-Sandcastle also exposes an initial parent-scoped Implementation Coordination core through `coordinateImplementation()` / `runImplementationCoordination()`. The first slice is ports-and-adapters only: callers provide fake or custom backlog and pull request ports, and the no-work path returns `do-not-recommend-merge-yet` without creating a PR when no issue branch was accepted.
+Sandcastle also exposes an initial parent-scoped Implementation Coordination core through `coordinateImplementation()` / `runImplementationCoordination()`. The current slice is ports-and-adapters only: callers provide fake or custom backlog, workspace, agent-runner, verifier, and pull request/report ports. With no scoped tasks it returns `do-not-recommend-merge-yet` without creating a PR; with one accepted task it claims the task, runs worker then reviewer, verifies before merging into the coordinator branch, marks the task done only after a successful merge, verifies/pushes the coordinator branch, publishes a PR/report, and returns `recommend-merge` when verification passes.
 
 ```typescript
 import { run, claudeCode } from "@ai-hero/sandcastle";

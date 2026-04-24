@@ -208,6 +208,23 @@ const requirePort = <TPort>(
   return port;
 };
 
+type RequiredLifecycleBacklogPort = ImplementationCoordinationBacklogPort & {
+  claimTask(task: ScopedTask): Promise<void>;
+  markTaskDone(task: ScopedTask, outcome: DoneOutcome): Promise<void>;
+};
+
+const requireBacklogLifecycle = (
+  backlog: ImplementationCoordinationBacklogPort,
+): RequiredLifecycleBacklogPort => {
+  if (backlog.claimTask === undefined || backlog.markTaskDone === undefined) {
+    throw new Error(
+      "backlog lifecycle methods claimTask and markTaskDone are required when scoped tasks exist.",
+    );
+  }
+
+  return backlog as RequiredLifecycleBacklogPort;
+};
+
 const renderPullRequestBody = (options: {
   readonly parent: ParentEffort;
   readonly completedTasks: readonly IntegratedTask[];
@@ -259,6 +276,7 @@ export const runImplementationCoordination = async (
     };
   }
 
+  const backlog = requireBacklogLifecycle(options.ports.backlog);
   const workspace = requirePort(options.ports.workspace, "workspace");
   const agentRunner = requirePort(options.ports.agentRunner, "agentRunner");
   const verifier = requirePort(options.ports.verifier, "verifier");
@@ -267,7 +285,7 @@ export const runImplementationCoordination = async (
   });
 
   for (const task of scopedTasks) {
-    await options.ports.backlog.claimTask?.(task);
+    await backlog.claimTask(task);
     const taskWorkspace = await workspace.createTaskWorkspace({
       parent,
       task,
@@ -286,7 +304,9 @@ export const runImplementationCoordination = async (
     });
 
     if (hasBlockingFindings(reviewerResult)) {
-      continue;
+      throw new Error(
+        `Blocking reviewer findings for ${task.id} require the #14 review-loop/needs-attention behavior.`,
+      );
     }
 
     const taskVerification = await verifier.verify({
@@ -296,12 +316,24 @@ export const runImplementationCoordination = async (
       taskWorkspace,
       coordinatorWorkspace,
     });
-    await workspace.mergeTaskIntoCoordinator({
+    if (!taskVerification.passed) {
+      throw new Error(
+        `Task verification failed for ${task.id}: ${taskVerification.summary}`,
+      );
+    }
+
+    const mergeResult = await workspace.mergeTaskIntoCoordinator({
       task,
       taskWorkspace,
       coordinatorWorkspace,
     });
-    await options.ports.backlog.markTaskDone?.(task, {
+    if (!mergeResult.merged) {
+      throw new Error(
+        `Merge failed for ${task.id}${mergeResult.summary ? `: ${mergeResult.summary}` : ""}`,
+      );
+    }
+
+    await backlog.markTaskDone(task, {
       acceptance: "accepted",
       branch: taskWorkspace.branch,
       verification: taskVerification,

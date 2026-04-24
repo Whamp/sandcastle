@@ -52,6 +52,297 @@ describe("coordinateImplementation", () => {
     expect(publishedPullRequests).toEqual([]);
   });
 
+  it("does not run worker or publish PR for non-empty scoped tasks when lifecycle methods are absent", async () => {
+    const events: string[] = [];
+    const parent: ParentEffort = { id: "parent-11", title: "Parent" };
+    const task: ScopedTask = { id: "task-13", title: "One accepted task" };
+
+    await expect(
+      coordinateImplementation({
+        parent: { type: "github-issue", issueNumber: 11 },
+        ports: {
+          backlog: {
+            async loadParent() {
+              events.push("backlog:load-parent");
+              return parent;
+            },
+            async listScopedTasks() {
+              events.push("backlog:list-scoped-tasks");
+              return [task];
+            },
+          },
+          workspace: {
+            async createCoordinatorWorkspace() {
+              events.push("workspace:create-coordinator");
+              return {
+                path: "/worktrees/coordinator",
+                branch: "coordinator/parent-11",
+              };
+            },
+            async createTaskWorkspace() {
+              events.push("workspace:create-task");
+              return {
+                path: "/worktrees/task-13",
+                branch: "task/13-one-accepted-task",
+              };
+            },
+            async mergeTaskIntoCoordinator() {
+              events.push("workspace:merge-task");
+              return { merged: true };
+            },
+            async hasIntegratedChanges() {
+              events.push("workspace:has-integrated-changes");
+              return true;
+            },
+            async pushCoordinatorBranch() {
+              events.push("workspace:push-coordinator");
+            },
+          },
+          agentRunner: {
+            async runWorker() {
+              events.push("agent:worker");
+              return { summary: "Implemented task 13" };
+            },
+            async runReviewer() {
+              events.push("agent:reviewer");
+              return { findings: [] };
+            },
+          },
+          verifier: {
+            async verify(options) {
+              events.push(`verify:${options.target}`);
+              return {
+                target: options.target,
+                passed: true,
+                summary: `${options.target} verification passed`,
+              };
+            },
+          },
+          pullRequests: {
+            async createOrUpdate() {
+              events.push("pull-request:publish");
+              return { url: "https://example.test/pr/13" };
+            },
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      "backlog lifecycle methods claimTask and markTaskDone are required when scoped tasks exist",
+    );
+
+    expect(events).toEqual([
+      "backlog:load-parent",
+      "backlog:list-scoped-tasks",
+    ]);
+  });
+
+  it.each([
+    {
+      name: "failed task verification",
+      taskVerification: { passed: false, summary: "task tests failed" },
+      mergeResult: { merged: true },
+      expectedError: "Task verification failed for task-13: task tests failed",
+      forbiddenEvents: [
+        "workspace:merge-task",
+        "backlog:done",
+        "pull-request:publish",
+      ],
+    },
+    {
+      name: "merge failure",
+      taskVerification: { passed: true, summary: "task tests passed" },
+      mergeResult: { merged: false, summary: "merge conflict" },
+      expectedError: "Merge failed for task-13: merge conflict",
+      forbiddenEvents: ["backlog:done", "pull-request:publish"],
+    },
+  ])(
+    "does not mark done, publish, or recommend merge after $name",
+    async ({ taskVerification, mergeResult, expectedError, forbiddenEvents }) => {
+      const events: string[] = [];
+      const parent: ParentEffort = { id: "parent-11", title: "Parent" };
+      const task: ScopedTask = { id: "task-13", title: "One accepted task" };
+
+      await expect(
+        coordinateImplementation({
+          parent: { type: "github-issue", issueNumber: 11 },
+          ports: {
+            backlog: {
+              async loadParent() {
+                return parent;
+              },
+              async listScopedTasks() {
+                return [task];
+              },
+              async claimTask() {
+                events.push("backlog:claim");
+              },
+              async markTaskDone() {
+                events.push("backlog:done");
+              },
+            },
+            workspace: {
+              async createCoordinatorWorkspace() {
+                events.push("workspace:create-coordinator");
+                return {
+                  path: "/worktrees/coordinator",
+                  branch: "coordinator/parent-11",
+                };
+              },
+              async createTaskWorkspace() {
+                events.push("workspace:create-task");
+                return {
+                  path: "/worktrees/task-13",
+                  branch: "task/13-one-accepted-task",
+                };
+              },
+              async mergeTaskIntoCoordinator() {
+                events.push("workspace:merge-task");
+                return mergeResult;
+              },
+              async hasIntegratedChanges() {
+                events.push("workspace:has-integrated-changes");
+                return true;
+              },
+              async pushCoordinatorBranch() {
+                events.push("workspace:push-coordinator");
+              },
+            },
+            agentRunner: {
+              async runWorker() {
+                events.push("agent:worker");
+                return { summary: "Implemented task 13" };
+              },
+              async runReviewer() {
+                events.push("agent:reviewer");
+                return { findings: [] };
+              },
+            },
+            verifier: {
+              async verify(options) {
+                events.push(`verify:${options.target}`);
+                if (options.target === "task") {
+                  return {
+                    target: options.target,
+                    passed: taskVerification.passed,
+                    summary: taskVerification.summary,
+                  };
+                }
+                return {
+                  target: options.target,
+                  passed: true,
+                  summary: "coordinator verification passed",
+                };
+              },
+            },
+            pullRequests: {
+              async createOrUpdate() {
+                events.push("pull-request:publish");
+                return { url: "https://example.test/pr/13" };
+              },
+            },
+          },
+        }),
+      ).rejects.toThrow(expectedError);
+
+      for (const forbiddenEvent of forbiddenEvents) {
+        expect(events).not.toContain(forbiddenEvent);
+      }
+      expect(events).not.toContain("verify:coordinator");
+      expect(events).not.toContain("workspace:push-coordinator");
+    },
+  );
+
+  it("does not silently ignore P0/P1 reviewer findings or publish a PR", async () => {
+    const events: string[] = [];
+    const parent: ParentEffort = { id: "parent-11", title: "Parent" };
+    const task: ScopedTask = { id: "task-13", title: "One accepted task" };
+
+    await expect(
+      coordinateImplementation({
+        parent: { type: "github-issue", issueNumber: 11 },
+        ports: {
+          backlog: {
+            async loadParent() {
+              return parent;
+            },
+            async listScopedTasks() {
+              return [task];
+            },
+            async claimTask() {
+              events.push("backlog:claim");
+            },
+            async markTaskDone() {
+              events.push("backlog:done");
+            },
+          },
+          workspace: {
+            async createCoordinatorWorkspace() {
+              events.push("workspace:create-coordinator");
+              return {
+                path: "/worktrees/coordinator",
+                branch: "coordinator/parent-11",
+              };
+            },
+            async createTaskWorkspace() {
+              events.push("workspace:create-task");
+              return {
+                path: "/worktrees/task-13",
+                branch: "task/13-one-accepted-task",
+              };
+            },
+            async mergeTaskIntoCoordinator() {
+              events.push("workspace:merge-task");
+              return { merged: true };
+            },
+            async hasIntegratedChanges() {
+              events.push("workspace:has-integrated-changes");
+              return true;
+            },
+            async pushCoordinatorBranch() {
+              events.push("workspace:push-coordinator");
+            },
+          },
+          agentRunner: {
+            async runWorker() {
+              events.push("agent:worker");
+              return { summary: "Implemented task 13" };
+            },
+            async runReviewer() {
+              events.push("agent:reviewer");
+              return { findings: [{ severity: "P1", title: "Blocking bug" }] };
+            },
+          },
+          verifier: {
+            async verify(options) {
+              events.push(`verify:${options.target}`);
+              return {
+                target: options.target,
+                passed: true,
+                summary: `${options.target} verification passed`,
+              };
+            },
+          },
+          pullRequests: {
+            async createOrUpdate() {
+              events.push("pull-request:publish");
+              return { url: "https://example.test/pr/13" };
+            },
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      "Blocking reviewer findings for task-13 require the #14 review-loop/needs-attention behavior",
+    );
+
+    expect(events).toEqual([
+      "workspace:create-coordinator",
+      "backlog:claim",
+      "workspace:create-task",
+      "agent:worker",
+      "agent:reviewer",
+    ]);
+  });
+
   it("coordinates one ready task through acceptance, verification, merge, and PR recommendation", async () => {
     const events: string[] = [];
     const parentRef: ParentRef = { type: "github-issue", issueNumber: 11 };
