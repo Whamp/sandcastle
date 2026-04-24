@@ -67,7 +67,11 @@ const baseOptions: CreateOrUpdateCoordinationPullRequestOptions = {
 };
 
 const createFakeGh = (
-  existingPrs: Array<{ number: number; url: string; baseRefName?: string }> = [],
+  existingPrs: Array<{
+    number: number;
+    url: string;
+    baseRefName?: string;
+  }> = [],
 ) => {
   const commands: string[][] = [];
   const gh = async (args: string[]): Promise<string> => {

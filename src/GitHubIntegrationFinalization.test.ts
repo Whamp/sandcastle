@@ -1073,7 +1073,8 @@ describe("finalizeIntegration GitHub path", () => {
                 executionMode: "host",
                 recordedAt: "2099-01-01T00:00:00.000Z",
                 branch,
-                reason: "Accepted into the coordination PR with a skewed clock.",
+                reason:
+                  "Accepted into the coordination PR with a skewed clock.",
               }),
               createdAt: "2026-04-24T10:30:00.000Z",
             },
@@ -1086,7 +1087,8 @@ describe("finalizeIntegration GitHub path", () => {
                 executionMode: "host",
                 recordedAt: "2026-04-24T09:00:00.000Z",
                 branch,
-                reason: "A later GitHub comment contradicted the accepted state.",
+                reason:
+                  "A later GitHub comment contradicted the accepted state.",
               }),
               createdAt: "2026-04-24T11:00:00.000Z",
             },

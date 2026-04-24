@@ -98,10 +98,9 @@ describe("Sandcastle coordination manifest", () => {
       '"mergeRecommendation": "recommend-merge"',
       '"mergeRecommendation": "done"',
     );
-    const invalidPublisher = renderCoordinationManifest(manifestOptions).replace(
-      '"publisher": "sandcastle"',
-      '"publisher": "other-tool"',
-    );
+    const invalidPublisher = renderCoordinationManifest(
+      manifestOptions,
+    ).replace('"publisher": "sandcastle"', '"publisher": "other-tool"');
     const missingAcceptedTaskCount = renderCoordinationManifest(
       manifestOptions,
     ).replace(/,\n    "acceptedTaskCount": 1/, "");
