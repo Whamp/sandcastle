@@ -85,7 +85,7 @@ A task that a worker attempted but could not complete because it requires interv
 _Avoid_: Using blocked when the problem is not a task dependency
 
 **Finalization needs attention**:
-An Integration Finalization outcome recorded when the coordination PR landing proof is incomplete or contradictory.
+An Integration Finalization outcome recorded when the coordination PR, coordination manifest, target-branch landing proof, or accepted task state is incomplete or contradictory.
 _Avoid_: Needs-attention task
 
 **Accepted for integration task**:
@@ -153,7 +153,7 @@ _Avoid_: Done marker, automatic merge
 - **Integration Finalization** observes or confirms that a **coordination PR** landed on the **target branch**, proves its accepted task set landed as an intact integration artifact, and then marks those tasks **done**
 - **Integration Finalization** requires both **coordination PR** merge state and **target-branch landing proof** before marking **accepted for integration tasks** **done**
 - A **coordination PR** is treated as an atomic integration artifact: if the accepted task set lands intact, **Integration Finalization** finalizes all of it; if landing proof is incomplete or contradictory, it finalizes none of it
-- When **Integration Finalization** cannot prove an atomic landing, **accepted for integration tasks** remain accepted for integration and the **coordination PR** or finalization run records **finalization needs attention**
+- When **Integration Finalization** cannot prove an atomic landing or encounters an invalid/missing manifest or inconsistent accepted task state, **accepted for integration tasks** remain accepted for integration and the **coordination PR** or finalization run records **finalization needs attention**
 - An **accepted for integration task** resolves its **claim lease**; future selection skips it because of the accepted-for-integration outcome, not because of an active claim
 - A **coordination PR** may have a merge recommendation that does not recommend merge; **accepted for integration** means durable artifact membership, not merge safety
 - A **done task** has landed on the target branch and its **issue** has been closed
@@ -175,7 +175,7 @@ _Avoid_: Done marker, automatic merge
 - **"Task"** vs **"Issue"** — **Task** is canonical; **Issue** is the GitHub representation
 - **"Child task"** vs **"Scoped task"** — **child task** names the stable relationship under a **parent scope**; **scoped task** names run selection and may be a subset of child tasks
 - **"Blocked"** vs **"Needs-attention"** — **blocked** is for unresolved **task dependencies**; **needs-attention** is for execution problems that need intervention
-- **"Needs-attention task"** vs **"Finalization needs attention"** — a **needs-attention task** means worker execution needs intervention; **finalization needs attention** means Integration Finalization could not prove atomic landing and should not change child task outcomes
+- **"Needs-attention task"** vs **"Finalization needs attention"** — a **needs-attention task** means worker execution needs intervention; **finalization needs attention** means Integration Finalization could not trust the coordination PR, manifest, landing proof, or accepted task state and should not change child task outcomes
 - **"Claim"** vs **"Task state"** — a **claim** is coordination metadata, not lifecycle state
 - **"Implemented"** vs **"Done"** — a task can be implemented without being **done**; **done** requires land plus issue closure
 - **"Completed"** vs **"Accepted for integration"** vs **"Done"** — avoid **completed** for parent-scoped child task outcomes; use **accepted for integration** for durable coordination PR membership and **done** only after target-branch landing plus issue closure or marking

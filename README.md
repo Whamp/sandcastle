@@ -120,7 +120,7 @@ You can also [create your own provider](#custom-execution-providers) using `crea
 
 Sandcastle exports a programmatic `run()` function for use in scripts, CI pipelines, or custom tooling. The examples below use `docker()`, but any execution provider (`SandboxProvider`) works in its place.
 
-Sandcastle also exposes parent-scoped Implementation Coordination through the GitHub-first `coordinateImplementation()` wrapper and the ports-first `runImplementationCoordination()` core. The public happy path discovers implementation Tasks under a parent GitHub issue, coordinates worker/reviewer execution in Sandcastle worktrees, verifies accepted branches, merges them into a coordinator branch, and publishes a pull request as the durable final artifact.
+Sandcastle also exposes parent-scoped Implementation Coordination through the GitHub-first `coordinateImplementation()` wrapper and the ports-first `runImplementationCoordination()` core. The public happy path discovers implementation Tasks under a parent GitHub issue, coordinates worker/reviewer execution in Sandcastle worktrees, verifies accepted branches, merges them into a coordinator branch, and publishes a coordination PR as the durable integration artifact. Publishing the coordination PR marks included child Tasks **accepted for integration**; it does not mark them **done**.
 
 ```typescript
 import { claudeCode, coordinateImplementation } from "@ai-hero/sandcastle";
@@ -167,7 +167,19 @@ const result = await coordinateImplementation({
 
 `coordinateImplementation()` returns accepted-for-integration Tasks, blocked Tasks, needs-attention Tasks, P2/P3 reviewer findings, verification results, coordinator branch/worktree details, and either `pullRequest.url` or `noPullRequestReason`. Sandcastle never merges the PR automatically; a human must review and merge it outside this API. Sandcastle also avoids empty PRs: when no task branch was accepted or the coordinator branch has no diff from the base branch, the result explains why no PR was created. Use `runImplementationCoordination()` when you want the same core state machine with fake or custom backlog, workspace, agent-runner, verifier, and PR ports.
 
-After a coordination PR exists, run Integration Finalization from that PR rather than from child Tasks. The GitHub-first `finalizeIntegration()` wrapper accepts a coordination PR number or URL and uses the current repository by default (or `repo`/`cwd` when configured). If the coordination PR is still open, finalization records a pending/no-op report on the coordination PR. If the PR was closed without merging, or if a merged PR is missing a valid Sandcastle coordination manifest, finalization records **finalization needs attention** on the coordination PR/finalization run. Finalization needs attention is not a needs-attention Task outcome, and these pending/attention outcomes do not mark child Tasks done or close child issues.
+### Integration Finalization
+
+After a coordination PR exists, run Integration Finalization from that PR rather than from child Tasks. The GitHub-first `finalizeIntegration()` wrapper accepts a coordination PR number, numeric string, URL, or ref object and uses the current repository by default (or `repo`/`cwd` when configured). Integration Finalization is a Task Coordination truthkeeping workflow: it reads the versioned Sandcastle coordination manifest from the PR, confirms GitHub says the coordination PR was merged, proves the PR's landed commit is an ancestor of the manifest target branch, verifies accepted child Tasks are still accepted for integration or already done for that landed artifact, and only then marks child Tasks done and closes/marks their backlog artifacts.
+
+Finalization outcomes are intentionally safe to retry:
+
+- `pending` / `coordination-pr-open`: the coordination PR is still open. Finalization writes a pending report on the coordination PR, makes no child Task mutations, and can be run again after the PR lands.
+- `finalization-needs-attention`: finalization writes an attention report and makes no child Task mutations when the coordination PR is closed without merging, the manifest is missing or invalid, the PR base branch contradicts the manifest target branch, the landed commit is missing, target-branch landing proof fails, or an accepted child Task has an inconsistent current lifecycle state. **Finalization needs attention** is not a needs-attention Task outcome; accepted child Tasks remain accepted for integration until a human reconciles the PR, manifest, branch proof, or Task history and retries finalization.
+- `finalized`: the coordination PR landed on the target branch and all accepted child Tasks were marked done. The result includes `newlyFinalizedTasks`, `alreadyFinalizedTasks`, `finalizedTasks`, and an atomic finalization `decision`.
+- `already-finalized`: all accepted child Tasks already had the matching done lifecycle event and closed/done backlog artifact. Retry succeeded without duplicating done events.
+- `retry-needed` / `incomplete-write-retry-needed`: finalization proved the coordination PR landed, but one or more GitHub writes did not complete. Completed writes are not rolled back. Users should fix the transient GitHub/API/permission problem, leave any successfully written done events in place, and rerun `finalizeIntegration()`; retry convergence skips duplicate done comments and finishes missing issue close/mark-done writes, including already-done-but-still-open issues.
+
+Integration Finalization does **not** merge coordination PRs, decide whether a PR is ready to merge, rerun tests, inspect CI, enforce branch protection, release, deploy, or optimize for cherry-picked subsets of accepted child Tasks. Those decisions stay outside Task Coordination; finalization only records trustworthy Task outcomes after the coordination artifact has landed.
 
 ```typescript
 import { finalizeIntegration } from "@ai-hero/sandcastle";
