@@ -396,6 +396,49 @@ describe("LocalImplementationAgentRunnerAdapter", () => {
       await rm(repo, { recursive: true, force: true });
     }
   });
+
+  it("accepts pretty-printed multi-line reviewer JSON", async () => {
+    const repo = await setupRepo();
+    try {
+      const workspace = new LocalImplementationWorkspaceAdapter({ cwd: repo });
+      const coordinator = await workspace.createCoordinatorWorkspace({
+        parent,
+      });
+      const taskWorkspace = await workspace.createTaskWorkspace({
+        parent,
+        task,
+        coordinatorWorkspace: coordinator,
+      });
+      const workerAgent = fakeAgent(() => "printf 'worker complete\\n'");
+      const reviewerAgent = fakeAgent(
+        () =>
+          `printf '%s\\n' ${shellEscape(
+            JSON.stringify(
+              { findings: [{ severity: "P2", title: "note" }] },
+              null,
+              2,
+            ),
+          )}`,
+      );
+      const runner = new LocalImplementationAgentRunnerAdapter({
+        workerAgent,
+        reviewerAgent,
+        sandbox: noSandbox(),
+        workspace,
+      });
+
+      await expect(
+        runner.runReviewer({
+          parent,
+          task,
+          taskWorkspace,
+          workerResult: { summary: "worker complete" },
+        }),
+      ).resolves.toEqual({ findings: [{ severity: "P2", title: "note" }] });
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("LocalImplementationVerifierAdapter", () => {

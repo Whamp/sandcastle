@@ -74,6 +74,12 @@ const gitOrThrow = async (cwd: string, args: readonly string[]) => {
 
 const lastJsonObject = (text: string): unknown => {
   const trimmed = text.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    // Fall back to scanning individual log lines for the final JSON payload.
+  }
+
   const lines = trimmed.split(/\r?\n/).filter(Boolean).reverse();
   for (const line of lines) {
     for (const candidate of [line, extractJsonPayload(line)]) {
