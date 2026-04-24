@@ -327,7 +327,12 @@ describe("LocalImplementationWorkspaceAdapter", () => {
         task: { id: "after-conflict" },
         coordinatorWorkspace: coordinator,
       });
-      await commitFile(nextTask.path, "after-conflict.txt", "ok\n", "after conflict");
+      await commitFile(
+        nextTask.path,
+        "after-conflict.txt",
+        "ok\n",
+        "after conflict",
+      );
 
       const nextMerge = await workspace.mergeTaskIntoCoordinator({
         task: { id: "after-conflict" },
