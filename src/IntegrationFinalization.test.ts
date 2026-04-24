@@ -267,6 +267,45 @@ describe("runIntegrationFinalization", () => {
     ]);
   });
 
+  it("records finalization needs attention and mutates no child tasks when the coordination PR base branch does not match the manifest target branch", async () => {
+    const fake = new FakeFinalizationPorts();
+    fake.pullRequest = {
+      ...fake.pullRequest,
+      state: "closed",
+      merged: true,
+      landedCommit: "abc123",
+      baseBranch: "release",
+    };
+
+    const result = await fake.run();
+
+    expect(result.outcome).toBe("finalization-needs-attention");
+    expect(result.reason).toBe("coordination-pr-target-branch-mismatch");
+    expect(result.finalizedTasks).toEqual([]);
+    expect(fake.doneOutcomes).toEqual([]);
+    expect(fake.events).toEqual([
+      "pr:load:pr-21",
+      "report:finalization-needs-attention",
+    ]);
+    expect(fake.reports).toEqual([
+      {
+        outcome: "finalization-needs-attention",
+        reason: "coordination-pr-target-branch-mismatch",
+        summary:
+          "Integration Finalization needs attention because the coordination PR base branch release does not match the manifest target branch main.",
+        coordinationPullRequest: {
+          id: "pr-21",
+          number: 21,
+          url: "https://example.test/pull/21",
+        },
+        targetBranch: "main",
+        landedCommit: "abc123",
+        acceptedTasks: [acceptedTask],
+        finalizedTasks: [],
+      },
+    ]);
+  });
+
   it("records finalization needs attention and mutates no child tasks when an accepted child task state is inconsistent", async () => {
     const fake = new FakeFinalizationPorts();
     fake.pullRequest = {

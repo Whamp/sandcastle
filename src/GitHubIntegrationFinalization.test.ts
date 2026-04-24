@@ -65,6 +65,7 @@ const manifestBody = (
 
 const acceptedForIntegrationComment = (
   issueNumber: number,
+  branch: string,
 ): GitHubIssueComment => ({
   body: formatTaskCoordinationComment({
     kind: "sandcastle-task-coordination",
@@ -73,7 +74,7 @@ const acceptedForIntegrationComment = (
     runId: `accepted-${issueNumber}`,
     executionMode: "host",
     recordedAt: "2026-04-24T10:30:00.000Z",
-    branch: `sandcastle/task/${issueNumber}`,
+    branch,
     reason: "Accepted into the coordination PR.",
   }),
   createdAt: "2026-04-24T10:30:00.000Z",
@@ -277,7 +278,12 @@ describe("finalizeIntegration GitHub path", () => {
           title: "Add ports-first Integration Finalization core",
           body: "## Parent\n\n#21",
           state: "OPEN",
-          comments: [acceptedForIntegrationComment(23)],
+          comments: [
+            acceptedForIntegrationComment(
+              23,
+              "sandcastle/task/23-finalization-core",
+            ),
+          ],
           labels: ["ready-for-agent"],
           url: "https://github.com/Whamp/sandcastle/issues/23",
         },
@@ -286,7 +292,12 @@ describe("finalizeIntegration GitHub path", () => {
           title: "Add GitHub Integration Finalization adapters",
           body: "## Parent\n\n#21",
           state: "OPEN",
-          comments: [acceptedForIntegrationComment(24)],
+          comments: [
+            acceptedForIntegrationComment(
+              24,
+              "sandcastle/task/24-github-adapters",
+            ),
+          ],
           labels: ["ready-for-agent"],
           url: "https://github.com/Whamp/sandcastle/issues/24",
         },
@@ -437,7 +448,12 @@ describe("finalizeIntegration GitHub path", () => {
           title: "Accepted child task",
           body: "## Parent\n\n#21",
           state: "OPEN",
-          comments: [acceptedForIntegrationComment(23)],
+          comments: [
+            acceptedForIntegrationComment(
+              23,
+              "sandcastle/task/23-finalization-core",
+            ),
+          ],
         },
         {
           number: 24,
@@ -480,6 +496,126 @@ describe("finalizeIntegration GitHub path", () => {
       expect(result.reason).toBe("accepted-task-state-inconsistent");
       expect(result.finalizedTasks).toEqual([]);
       expect(childIssues.map((issue) => issue.state)).toEqual(["OPEN", "OPEN"]);
+      expect(childIssueMutationCommands(commands)).toEqual([]);
+      expect(pullRequest.comments).toHaveLength(1);
+      expect(pullRequest.comments[0]!.body).toContain(
+        "accepted-task-state-inconsistent",
+      );
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("reports finalization needs attention and mutates no child issues when the manifest target branch differs from the actual GitHub PR base branch", async () => {
+    const { repo, landedCommit } = await setupMergedRepo();
+    try {
+      const childIssues: FakeIssue[] = [
+        {
+          number: 23,
+          title: "Accepted child task for mismatched target branch",
+          body: "## Parent\n\n#21",
+          state: "OPEN",
+          comments: [
+            acceptedForIntegrationComment(
+              23,
+              "sandcastle/task/23-finalization-core",
+            ),
+          ],
+        },
+      ];
+      const pullRequest: FakePullRequest = {
+        number: 31,
+        url: "https://github.com/Whamp/sandcastle/pull/31",
+        state: "MERGED",
+        body: renderCoordinationManifest({
+          parent: { id: "#21", title: "Parent PRD" },
+          coordinatorBranch: "sandcastle/coordinator/21",
+          targetBranch: "release",
+          baseBranch: "release",
+          acceptedForIntegrationTasks: [
+            {
+              task: { id: "#23", title: childIssues[0]!.title },
+              branch: "sandcastle/task/23-finalization-core",
+            },
+          ],
+          mergeRecommendation: "recommend-merge",
+          publishedAt: "2026-04-24T10:00:00.000Z",
+        }),
+        headRefName: "sandcastle/coordinator/21",
+        baseRefName: "main",
+        mergedAt: "2026-04-24T12:00:00.000Z",
+        mergeCommit: { oid: landedCommit },
+        comments: [],
+      };
+      const { gh, commands } = createFakeGh([pullRequest], childIssues);
+
+      const result = await finalizeIntegration({
+        coordinationPullRequest: 31,
+        repo: "Whamp/sandcastle",
+        cwd: repo,
+        gh,
+      });
+
+      expect(result.outcome).toBe("finalization-needs-attention");
+      expect(result.reason).toBe("coordination-pr-target-branch-mismatch");
+      expect(result.finalizedTasks).toEqual([]);
+      expect(childIssues[0]!.state).toBe("OPEN");
+      expect(childIssueMutationCommands(commands)).toEqual([]);
+      expect(pullRequest.comments).toHaveLength(1);
+      expect(pullRequest.comments[0]!.body).toContain(
+        "coordination-pr-target-branch-mismatch",
+      );
+      expect(pullRequest.comments[0]!.body).toContain(
+        "coordination PR base branch main does not match the manifest target branch release",
+      );
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("reports finalization needs attention and mutates no child issues when an accepted event branch does not match the manifest task branch", async () => {
+    const { repo, landedCommit } = await setupMergedRepo();
+    try {
+      const childIssues: FakeIssue[] = [
+        {
+          number: 23,
+          title: "Accepted child task on an old branch",
+          body: "## Parent\n\n#21",
+          state: "OPEN",
+          comments: [
+            acceptedForIntegrationComment(23, "sandcastle/task/23-old-branch"),
+          ],
+        },
+      ];
+      const pullRequest: FakePullRequest = {
+        number: 30,
+        url: "https://github.com/Whamp/sandcastle/pull/30",
+        state: "MERGED",
+        body: manifestBody([
+          {
+            task: { id: "#23", title: childIssues[0]!.title },
+            branch: "sandcastle/task/23-finalization-core",
+          },
+        ]),
+        headRefName: "sandcastle/coordinator/21",
+        baseRefName: "main",
+        mergedAt: "2026-04-24T12:00:00.000Z",
+        mergeCommit: { oid: landedCommit },
+        comments: [],
+      };
+      const { gh, commands } = createFakeGh([pullRequest], childIssues);
+
+      const result = await finalizeIntegration({
+        coordinationPullRequest: 30,
+        repo: "Whamp/sandcastle",
+        cwd: repo,
+        gh,
+      });
+
+      expect(result.outcome).toBe("finalization-needs-attention");
+      expect(result.reason).toBe("accepted-task-state-inconsistent");
+      expect(result.finalizedTasks).toEqual([]);
+      expect(childIssues[0]!.state).toBe("OPEN");
       expect(childIssueMutationCommands(commands)).toEqual([]);
       expect(pullRequest.comments).toHaveLength(1);
       expect(pullRequest.comments[0]!.body).toContain(

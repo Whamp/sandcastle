@@ -2,9 +2,10 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   GitHubIssueBacklog,
-  hasRecordedTaskCoordinationAcceptedForIntegration,
   hasRecordedTaskCoordinationDone,
+  parseTaskCoordinationComment,
   type GitHubCommandRunner,
+  type GitHubIssueComment,
   type TaskCoordinationComment,
 } from "./GitHubIssueBacklog.js";
 import {
@@ -287,6 +288,18 @@ export class GitHubIntegrationFinalizationLandingProofAdapter implements Integra
   }
 }
 
+const hasAcceptedForIntegrationEventMatchingManifestTask = (
+  comments: readonly GitHubIssueComment[],
+  task: Parameters<IntegrationFinalizationBacklogPort["loadTaskState"]>[0],
+): boolean =>
+  comments.some((comment) => {
+    const parsed = parseTaskCoordinationComment(comment.body);
+    return (
+      parsed?.event === "accepted-for-integration" &&
+      parsed.branch === task.branch
+    );
+  });
+
 const parseAcceptedTaskIssueNumber = (task: {
   readonly id: string;
   readonly issueNumber?: number;
@@ -323,7 +336,9 @@ export class GitHubIntegrationFinalizationBacklogAdapter implements IntegrationF
       return { state: "done" };
     }
 
-    if (hasRecordedTaskCoordinationAcceptedForIntegration(issue.comments)) {
+    if (
+      hasAcceptedForIntegrationEventMatchingManifestTask(issue.comments, task)
+    ) {
       return { state: "accepted-for-integration" };
     }
 
