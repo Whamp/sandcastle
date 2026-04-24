@@ -42,7 +42,7 @@ class FakePorts {
   workerResults: Array<WorkerResult | Error> = [
     { summary: "implemented task" },
   ];
-  reviewerResults: Array<ReviewerResult | unknown> = [{ findings: [] }];
+  reviewerResults: Array<ReviewerResult | unknown | Error> = [{ findings: [] }];
   taskVerifications: VerificationResult[] = [passedVerification("task")];
   coordinatorVerification = passedVerification("coordinator");
   mergeResult = { merged: true, summary: "merged" };
@@ -116,9 +116,13 @@ class FakePorts {
         },
         runReviewer: async ({ task, taskWorkspace }) => {
           this.events.push(`agent:reviewer:${task.id}:${taskWorkspace.branch}`);
-          return (this.reviewerResults.shift() ?? {
+          const result = this.reviewerResults.shift() ?? {
             findings: [],
-          }) as ReviewerResult;
+          };
+          if (result instanceof Error) {
+            throw result;
+          }
+          return result as ReviewerResult;
         },
       },
       verifier: {
@@ -345,6 +349,46 @@ describe("coordinateImplementation", () => {
     });
     expect(fake.events).not.toContain("verify:task:task-14");
     expect(result.pullRequest).toBeUndefined();
+  });
+
+  it("marks reviewer adapter throws as unparseable reviewer output and releases the task", async () => {
+    const fake = new FakePorts();
+    fake.reviewerResults = [new Error("Unexpected token < in JSON")];
+
+    const result = await fake.run();
+
+    expect(result.completedTasks).toEqual([]);
+    expect(result.needsAttentionTasks[0]).toMatchObject({
+      task: readyTask,
+      reason: "reviewer-output-unparseable",
+      summary: "Unexpected token < in JSON",
+      branch: "task/task-14",
+      workspace: "/worktrees/task-14",
+    });
+    expect(fake.needsAttentionOutcomes[0]).toMatchObject({
+      task: readyTask,
+      outcome: {
+        reason: "reviewer-output-unparseable",
+        summary: "Unexpected token < in JSON",
+        branch: "task/task-14",
+        workspace: "/worktrees/task-14",
+      },
+    });
+    expect(fake.events).toContain(
+      "backlog:release:task-14:reviewer-output-unparseable",
+    );
+    expect(fake.events).not.toContain("verify:task:task-14");
+    expect(result.pullRequest).toBeUndefined();
+  });
+
+  it("rejects invalid max review rounds before claiming a task", async () => {
+    const fake = new FakePorts();
+
+    await expect(fake.run({ policy: { maxReviewRounds: 0 } })).rejects.toThrow(
+      "policy.maxReviewRounds must be a positive integer",
+    );
+
+    expect(fake.events).toEqual([]);
   });
 
   it.each([

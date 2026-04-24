@@ -423,13 +423,17 @@ const buildNeedsAttentionOutcome = (options: {
 export const runImplementationCoordination = async (
   options: ImplementationCoordinationOptions,
 ): Promise<ImplementationCoordinationResult> => {
+  const maxReviewRounds = options.policy?.maxReviewRounds ?? 2;
+  if (!Number.isInteger(maxReviewRounds) || maxReviewRounds < 1) {
+    throw new Error("policy.maxReviewRounds must be a positive integer.");
+  }
+
   const parent = await options.ports.backlog.loadParent(options.parent);
   const scopedTasks = await options.ports.backlog.listScopedTasks(parent);
   const completedTasks: IntegratedTask[] = [];
   const blockedTasks: BlockedTaskResult[] = [];
   const needsAttentionTasks: NeedsAttentionTaskResult[] = [];
   const nonBlockingReviewFindings: ReviewFinding[] = [];
-  const maxReviewRounds = options.policy?.maxReviewRounds ?? 2;
 
   const baseResult = {
     parent,
@@ -532,12 +536,25 @@ export const runImplementationCoordination = async (
         break;
       }
 
-      const reviewerResult = await agentRunner.runReviewer({
-        parent,
-        task,
-        taskWorkspace,
-        workerResult,
-      });
+      let reviewerResult: ReviewerResult;
+      try {
+        reviewerResult = await agentRunner.runReviewer({
+          parent,
+          task,
+          taskWorkspace,
+          workerResult,
+        });
+      } catch (error) {
+        await markNeedsAttention(
+          buildNeedsAttentionOutcome({
+            task,
+            taskWorkspace,
+            reason: "reviewer-output-unparseable",
+            summary: errorSummary(error),
+          }),
+        );
+        break;
+      }
 
       if (!validateReviewerResult(reviewerResult)) {
         await markNeedsAttention(
