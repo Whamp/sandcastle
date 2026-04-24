@@ -61,6 +61,8 @@ export {
   NO_ACCEPTED_ISSUE_BRANCH_NO_PR_REASON,
 } from "./ImplementationCoordination.js";
 export type {
+  BlockedOutcome,
+  BlockedTaskResult,
   CoordinationPullRequest,
   CoordinatorWorkspace,
   CreateCoordinatorWorkspaceOptions,
@@ -71,6 +73,7 @@ export type {
   ImplementationCoordinationAgentRunnerPort,
   ImplementationCoordinationBacklogPort,
   ImplementationCoordinationOptions,
+  ImplementationCoordinationPolicy,
   ImplementationCoordinationPorts,
   ImplementationCoordinationPullRequestPort,
   ImplementationCoordinationResult,
@@ -79,6 +82,9 @@ export type {
   MergeRecommendation,
   MergeResult,
   MergeTaskOptions,
+  NeedsAttentionOutcome,
+  NeedsAttentionReason,
+  NeedsAttentionTaskResult,
   ParentEffort,
   ParentRef,
   PushCoordinatorOptions,
