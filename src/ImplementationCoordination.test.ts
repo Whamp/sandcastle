@@ -520,7 +520,7 @@ describe("coordinateImplementation", () => {
     expect(result.mergeRecommendation).toBe("do-not-recommend-merge-yet");
   });
 
-  it("continues to later unblocked tasks after an earlier needs-attention task", async () => {
+  it("continues to later unblocked tasks after an earlier needs-attention task but does not recommend merge", async () => {
     const fake = new FakePorts();
     const secondTask: ScopedTask = { id: "task-16", title: "Safe follow-up" };
     fake.scopedTasks = [readyTask, secondTask];
@@ -537,7 +537,8 @@ describe("coordinateImplementation", () => {
       "task-16",
     ]);
     expect(result.pullRequest?.url).toBe("https://example.test/pr/14");
-    expect(result.mergeRecommendation).toBe("recommend-merge");
+    expect(result.mergeRecommendation).toBe("do-not-recommend-merge-yet");
+    expect(fake.publishedBodies[0]).toContain("**Do not recommend merge yet**");
   });
 
   it("does not publish a PR or recommend merge when accepted tasks produce no integrated changes", async () => {

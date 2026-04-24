@@ -64,6 +64,9 @@ export {
   runImplementationCoordination,
   NO_ACCEPTED_ISSUE_BRANCH_NO_PR_REASON,
 } from "./ImplementationCoordination.js";
+export { renderImplementationCoordinationReport } from "./ImplementationCoordinationReport.js";
+export { GitHubImplementationPullRequestAdapter } from "./GitHubImplementationPullRequestAdapter.js";
+export type { GitHubImplementationPullRequestAdapterOptions } from "./GitHubImplementationPullRequestAdapter.js";
 export {
   LocalImplementationAgentRunnerAdapter,
   LocalImplementationVerifierAdapter,
