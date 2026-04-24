@@ -1,3 +1,5 @@
+import { renderImplementationCoordinationReport } from "./ImplementationCoordinationReport.js";
+
 export interface ParentRef {
   readonly type: string;
   readonly issueNumber?: number;
@@ -342,84 +344,6 @@ const requireBacklogLifecycle = (
 const errorSummary = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-const renderFindings = (findings: readonly ReviewFinding[]): string =>
-  findings.length === 0
-    ? "- None"
-    : findings
-        .map((finding) => {
-          const location = finding.file
-            ? ` (${finding.file}${finding.line ? `:${finding.line}` : ""})`
-            : "";
-          return `- ${finding.severity}: ${finding.title}${location}${
-            finding.body ? ` — ${finding.body}` : ""
-          }`;
-        })
-        .join("\n");
-
-const renderPullRequestBody = (options: {
-  readonly parent: ParentEffort;
-  readonly completedTasks: readonly IntegratedTask[];
-  readonly blockedTasks: readonly BlockedTaskResult[];
-  readonly needsAttentionTasks: readonly NeedsAttentionTaskResult[];
-  readonly nonBlockingReviewFindings: readonly ReviewFinding[];
-  readonly verification: VerificationResult;
-  readonly mergeRecommendation: MergeRecommendation;
-}): string => {
-  const completedTasks = options.completedTasks.length
-    ? options.completedTasks
-        .map((completedTask) => {
-          const taskName = completedTask.task.title ?? completedTask.task.id;
-          const verificationSummary = completedTask.verification?.summary;
-          return `- ${taskName} (${completedTask.task.id}) on ${completedTask.branch}${
-            verificationSummary ? ` — ${verificationSummary}` : ""
-          }`;
-        })
-        .join("\n")
-    : "- None";
-  const blockedTasks = options.blockedTasks.length
-    ? options.blockedTasks
-        .map(
-          (blockedTask) =>
-            `- ${blockedTask.task.title ?? blockedTask.task.id} (${blockedTask.task.id}) blocked by ${blockedTask.blockers.join(", ")}`,
-        )
-        .join("\n")
-    : "- None";
-  const needsAttentionTasks = options.needsAttentionTasks.length
-    ? options.needsAttentionTasks
-        .map(
-          (task) =>
-            `- ${task.task.title ?? task.task.id} (${task.task.id}): ${task.reason}${task.summary ? ` — ${task.summary}` : ""}${task.branch ? `; branch ${task.branch}` : ""}${task.workspace ? `; worktree ${task.workspace}` : ""}`,
-        )
-        .join("\n")
-    : "- None";
-  const recommendation =
-    options.mergeRecommendation === "recommend-merge"
-      ? "Recommend merge"
-      : "Do not recommend merge yet";
-
-  return [
-    `# Implementation coordination report: ${options.parent.title ?? options.parent.id}`,
-    "",
-    "## Completed tasks",
-    completedTasks,
-    "",
-    "## Blocked tasks",
-    blockedTasks,
-    "",
-    "## Needs-attention tasks",
-    needsAttentionTasks,
-    "",
-    "## Verification summary",
-    `- Coordinator: ${options.verification.summary}`,
-    "",
-    "## Non-blocking reviewer findings",
-    renderFindings(options.nonBlockingReviewFindings),
-    "",
-    "## Merge recommendation",
-    recommendation,
-  ].join("\n");
-};
-
 const buildNeedsAttentionOutcome = (options: {
   readonly task: ScopedTask;
   readonly taskWorkspace?: TaskWorkspace;
@@ -725,17 +649,20 @@ export const runImplementationCoordination = async (
   }
 
   const mergeRecommendation: MergeRecommendation =
-    coordinatorVerification.passed
+    coordinatorVerification.passed &&
+    blockedTasks.length === 0 &&
+    needsAttentionTasks.length === 0
       ? "recommend-merge"
       : "do-not-recommend-merge-yet";
 
   await workspace.pushCoordinatorBranch({ coordinatorWorkspace });
-  const body = renderPullRequestBody({
+  const body = renderImplementationCoordinationReport({
     parent,
     completedTasks,
     blockedTasks,
     needsAttentionTasks,
     nonBlockingReviewFindings,
+    coordinatorWorkspace,
     verification: coordinatorVerification,
     mergeRecommendation,
   });
