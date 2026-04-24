@@ -1,4 +1,14 @@
 import { execFile } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import type {
+  BlockedOutcome,
+  DoneOutcome,
+  ImplementationCoordinationBacklogPort,
+  NeedsAttentionOutcome,
+  ParentEffort,
+  ParentRef,
+  ScopedTask,
+} from "./ImplementationCoordination.js";
 
 export interface GitHubIssueComment {
   readonly body: string;
@@ -88,6 +98,13 @@ export interface GitHubIssueBacklogOptions {
   readonly repo?: string;
   readonly env?: Record<string, string>;
   readonly gh?: GitHubCommandRunner;
+}
+
+export interface GitHubImplementationBacklogAdapterOptions extends GitHubIssueBacklogOptions {
+  readonly now?: () => Date;
+  readonly runId?: () => string;
+  readonly executionMode?: TaskCoordinationComment["executionMode"];
+  readonly claimLeaseMs?: number;
 }
 
 const execGh = async (
@@ -774,5 +791,217 @@ export class GitHubIssueBacklog {
     body: string,
   ): Promise<void> {
     await this.#gh(["issue", "comment", String(issueNumber), "--body", body]);
+  }
+}
+
+const parseScopedTaskIssueNumber = (task: Pick<ScopedTask, "id">): number => {
+  const match =
+    task.id.match(/^#?(\d+)$/) ?? task.id.match(/github-issue:(\d+)$/);
+  const issueNumber = match?.[1] ? Number(match[1]) : Number.NaN;
+
+  if (!Number.isInteger(issueNumber)) {
+    throw new Error(
+      `Scoped task id must reference a GitHub issue number: ${task.id}`,
+    );
+  }
+
+  return issueNumber;
+};
+
+const toScopedTask = (
+  task: GitHubIssueTask,
+  unresolvedDependencies: readonly GitHubIssueTaskDependency[],
+): ScopedTask => ({
+  id: `#${task.issue.number}`,
+  title: task.issue.title,
+  blockers: unresolvedDependencies.map(
+    (dependency) => `#${dependency.issueNumber}`,
+  ),
+});
+
+export class GitHubImplementationBacklogAdapter implements ImplementationCoordinationBacklogPort {
+  readonly #backlog: GitHubIssueBacklog;
+  readonly #now: () => Date;
+  readonly #runId: () => string;
+  readonly #executionMode: TaskCoordinationComment["executionMode"];
+  readonly #claimLeaseMs: number;
+
+  constructor(options: GitHubImplementationBacklogAdapterOptions = {}) {
+    this.#backlog = new GitHubIssueBacklog(options);
+    this.#now = options.now ?? (() => new Date());
+    this.#runId = options.runId ?? randomUUID;
+    this.#executionMode = options.executionMode ?? "host";
+    this.#claimLeaseMs = options.claimLeaseMs ?? DEFAULT_TASK_CLAIM_LEASE_MS;
+  }
+
+  async loadParent(parent: ParentRef): Promise<ParentEffort> {
+    if (parent.issueNumber === undefined) {
+      throw new Error(
+        "GitHub implementation backlog parent.issueNumber is required.",
+      );
+    }
+
+    const issue = await this.#backlog.getIssue(parent.issueNumber);
+    return {
+      id: `#${issue.number}`,
+      title: issue.title,
+    };
+  }
+
+  async listScopedTasks(parent: ParentEffort): Promise<readonly ScopedTask[]> {
+    const parentIssueNumber = parseScopedTaskIssueNumber({ id: parent.id });
+    const readyIssues = await this.#backlog.listReadyIssues();
+    const scopedTasks: ScopedTask[] = [];
+
+    for (const readyIssue of readyIssues.sort(
+      (left, right) => left.number - right.number,
+    )) {
+      const issue = await this.#backlog.getIssue(readyIssue.number);
+      if (issue.state !== "OPEN" || isPrdIssue(issue)) {
+        continue;
+      }
+
+      const task = mapGitHubIssueToTask(issue);
+      if (task.parentIssueNumber !== parentIssueNumber) {
+        continue;
+      }
+
+      if (
+        hasRecordedTaskCoordinationDone(issue.comments) ||
+        hasIssueLabel(issue, NEEDS_ATTENTION_LABEL)
+      ) {
+        continue;
+      }
+
+      const claimState = getTaskCoordinationClaimState(issue.comments, {
+        now: this.#now(),
+        defaultLeaseMs: this.#claimLeaseMs,
+      });
+      if (claimState.status === "claimed") {
+        continue;
+      }
+
+      const dependencyStates = new Map<number, GitHubIssue["state"]>(
+        await Promise.all(
+          task.dependencies.map(
+            async (dependency) =>
+              [
+                dependency.issueNumber,
+                (await this.#backlog.getIssue(dependency.issueNumber)).state,
+              ] as const,
+          ),
+        ),
+      );
+      const readiness = getGitHubIssueTaskReadiness(task, dependencyStates);
+      scopedTasks.push(toScopedTask(task, readiness.unresolvedDependencies));
+    }
+
+    return scopedTasks;
+  }
+
+  async claimTask(task: ScopedTask): Promise<void> {
+    const issueNumber = parseScopedTaskIssueNumber(task);
+    const issue = await this.#backlog.getIssue(issueNumber);
+    const claimState = getTaskCoordinationClaimState(issue.comments, {
+      now: this.#now(),
+      defaultLeaseMs: this.#claimLeaseMs,
+    });
+    const runId = this.#runId();
+
+    if (claimState.status === "stale") {
+      await this.#backlog.reclaimTask(
+        issueNumber,
+        this.#createComment("reclaim", {
+          runId,
+          reason: "The prior claim lease expired before selection.",
+          reclaimedClaimRunId: claimState.claim?.runId,
+          reclaimedLeaseExpiresAt: claimState.leaseExpiresAt,
+        }),
+      );
+    }
+
+    await this.#backlog.claimTask(
+      issueNumber,
+      this.#createComment("claim", { runId }),
+    );
+  }
+
+  async reclaimTask(task: ScopedTask): Promise<void> {
+    const issue = await this.#backlog.getIssue(
+      parseScopedTaskIssueNumber(task),
+    );
+    const claimState = getTaskCoordinationClaimState(issue.comments, {
+      now: this.#now(),
+      defaultLeaseMs: this.#claimLeaseMs,
+    });
+
+    await this.#backlog.reclaimTask(
+      issue.number,
+      this.#createComment("reclaim", {
+        reason: "The prior claim lease expired before selection.",
+        reclaimedClaimRunId: claimState.claim?.runId,
+        reclaimedLeaseExpiresAt: claimState.leaseExpiresAt,
+      }),
+    );
+  }
+
+  async releaseTask(task: ScopedTask, reason: string): Promise<void> {
+    await this.#backlog.releaseTask(
+      parseScopedTaskIssueNumber(task),
+      this.#createComment("release", { reason }),
+    );
+  }
+
+  async markTaskBlocked(
+    _task: ScopedTask,
+    _outcome: BlockedOutcome,
+  ): Promise<void> {
+    // Explicit `Blocked by` issue body sections are the durable GitHub-backed
+    // dependency state. The implementation coordination core calls this hook to
+    // record blocked tasks, but the GitHub adapter must not duplicate that state
+    // with a separate needs-attention or claim-lifecycle event.
+  }
+
+  async markTaskDone(task: ScopedTask, outcome: DoneOutcome): Promise<void> {
+    await this.#backlog.markTaskDone(
+      parseScopedTaskIssueNumber(task),
+      this.#createComment("done", {
+        branch: outcome.branch,
+        reason: outcome.verification.summary,
+      }),
+    );
+  }
+
+  async markTaskNeedsAttention(
+    task: ScopedTask,
+    outcome: NeedsAttentionOutcome,
+  ): Promise<void> {
+    await this.#backlog.markTaskNeedsAttention(
+      parseScopedTaskIssueNumber(task),
+      this.#createComment("needs-attention", {
+        branch: outcome.branch,
+        reason: outcome.summary ?? outcome.reason,
+      }),
+    );
+  }
+
+  #createComment(
+    event: TaskCoordinationCommentEvent,
+    overrides: Partial<TaskCoordinationComment> = {},
+  ): TaskCoordinationComment {
+    const now = this.#now();
+    return {
+      kind: "sandcastle-task-coordination",
+      version: 1,
+      event,
+      runId: this.#runId(),
+      executionMode: this.#executionMode,
+      recordedAt: now.toISOString(),
+      leaseExpiresAt:
+        event === "claim"
+          ? new Date(now.getTime() + this.#claimLeaseMs).toISOString()
+          : undefined,
+      ...overrides,
+    };
   }
 }
