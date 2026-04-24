@@ -1,4 +1,5 @@
 import { exec, execSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -126,6 +127,32 @@ describe("LocalImplementationWorkspaceAdapter", () => {
         }).trim(),
       ).toBe(coordinatorSha);
     } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("does not create task worktrees inside the coordinator worktree when cwd uses the process default", async () => {
+    const repo = await setupRepo();
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(repo);
+      const workspace = new LocalImplementationWorkspaceAdapter({
+        coordinatorBranch: "sandcastle/coordinator-16",
+      });
+      const coordinator = await workspace.createCoordinatorWorkspace({
+        parent,
+      });
+
+      await workspace.createTaskWorkspace({
+        parent,
+        task,
+        coordinatorWorkspace: coordinator,
+      });
+
+      expect(existsSync(join(coordinator.path, ".sandcastle"))).toBe(false);
+      expect(existsSync(join(repo, ".sandcastle"))).toBe(true);
+    } finally {
+      process.chdir(originalCwd);
       await rm(repo, { recursive: true, force: true });
     }
   });
@@ -276,6 +303,38 @@ describe("LocalImplementationWorkspaceAdapter", () => {
       expect(conflict.taskWorkspace).toBe(conflictTask.path);
       expect(conflict.coordinatorBranch).toBe(coordinator.branch);
       expect(conflict.coordinatorWorkspace).toBe(coordinator.path);
+      expect(
+        execSync("git diff --name-only --diff-filter=U", {
+          cwd: coordinator.path,
+          encoding: "utf-8",
+        }).trim(),
+      ).toBe("");
+      expect(
+        execSync("git rev-parse -q --verify MERGE_HEAD >/dev/null; echo $?", {
+          cwd: coordinator.path,
+          encoding: "utf-8",
+        }).trim(),
+      ).toBe("1");
+      expect(
+        execSync("git status --porcelain", {
+          cwd: coordinator.path,
+          encoding: "utf-8",
+        }).trim(),
+      ).toBe("");
+
+      const nextTask = await workspace.createTaskWorkspace({
+        parent,
+        task: { id: "after-conflict" },
+        coordinatorWorkspace: coordinator,
+      });
+      await commitFile(nextTask.path, "after-conflict.txt", "ok\n", "after conflict");
+
+      const nextMerge = await workspace.mergeTaskIntoCoordinator({
+        task: { id: "after-conflict" },
+        taskWorkspace: nextTask,
+        coordinatorWorkspace: coordinator,
+      });
+      expect(nextMerge.merged).toBe(true);
     } finally {
       await rm(repo, { recursive: true, force: true });
       await rm(remote, { recursive: true, force: true });

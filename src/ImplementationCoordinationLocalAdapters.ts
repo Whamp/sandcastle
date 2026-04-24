@@ -167,6 +167,7 @@ export interface LocalImplementationWorkspaceAdapterOptions {
 
 export class LocalImplementationWorkspaceAdapter implements ImplementationCoordinationWorkspacePort {
   private readonly worktrees = new Map<string, Worktree>();
+  private readonly cwd: string;
   private readonly targetBranch: string;
   private readonly coordinatorBranch?: string;
   private readonly taskBranchPrefix: string;
@@ -175,6 +176,7 @@ export class LocalImplementationWorkspaceAdapter implements ImplementationCoordi
   constructor(
     private readonly options: LocalImplementationWorkspaceAdapterOptions = {},
   ) {
+    this.cwd = options.cwd ?? process.cwd();
     this.targetBranch = options.targetBranch ?? "main";
     this.coordinatorBranch = options.coordinatorBranch;
     this.taskBranchPrefix = options.taskBranchPrefix ?? "sandcastle/task";
@@ -188,7 +190,7 @@ export class LocalImplementationWorkspaceAdapter implements ImplementationCoordi
       this.coordinatorBranch ??
       `sandcastle/coordinator/${sanitizeBranchSegment(options.parent.id)}-${randomUUID().slice(0, 8)}`;
     const worktree = await createWorktree({
-      cwd: this.options.cwd,
+      cwd: this.cwd,
       branchStrategy: {
         type: "branch",
         branch,
@@ -215,7 +217,7 @@ export class LocalImplementationWorkspaceAdapter implements ImplementationCoordi
     ]);
     const branch = `${this.taskBranchPrefix}/${sanitizeBranchSegment(options.task.id)}-${randomUUID().slice(0, 8)}`;
     const worktree = await createWorktree({
-      cwd: this.options.cwd ?? options.coordinatorWorkspace.path,
+      cwd: this.cwd,
       branchStrategy: {
         type: "branch",
         branch,
@@ -256,6 +258,13 @@ export class LocalImplementationWorkspaceAdapter implements ImplementationCoordi
       "--name-only",
       "--diff-filter=U",
     ]);
+    const abort = await git(options.coordinatorWorkspace.path, [
+      "merge",
+      "--abort",
+    ]);
+    if (abort.exitCode !== 0) {
+      await git(options.coordinatorWorkspace.path, ["reset", "--merge"]);
+    }
     return {
       merged: false,
       summary: `git merge failed for ${options.taskWorkspace.branch}: ${
