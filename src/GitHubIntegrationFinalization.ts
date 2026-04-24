@@ -1,5 +1,12 @@
 import { execFile } from "node:child_process";
-import type { GitHubCommandRunner } from "./GitHubIssueBacklog.js";
+import { randomUUID } from "node:crypto";
+import {
+  GitHubIssueBacklog,
+  hasRecordedTaskCoordinationAcceptedForIntegration,
+  hasRecordedTaskCoordinationDone,
+  type GitHubCommandRunner,
+  type TaskCoordinationComment,
+} from "./GitHubIssueBacklog.js";
 import {
   runIntegrationFinalization,
   type AcceptedForIntegrationTaskState,
@@ -67,6 +74,30 @@ const execGh = async (
         }
 
         resolve(stdout.toString());
+      },
+    );
+  });
+
+const execGit = async (
+  args: string[],
+  options?: Pick<GitHubIntegrationFinalizationOptions, "cwd" | "env">,
+): Promise<{ readonly stdout: string; readonly stderr: string }> =>
+  new Promise((resolve, reject) => {
+    execFile(
+      "git",
+      args,
+      {
+        cwd: options?.cwd,
+        env: { ...process.env, ...options?.env },
+        maxBuffer: 10 * 1024 * 1024,
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(stderr?.trim() || error.message));
+          return;
+        }
+
+        resolve({ stdout: stdout.toString(), stderr: stderr.toString() });
       },
     );
   });
@@ -224,24 +255,100 @@ export class GitHubIntegrationFinalizationReporterAdapter implements Integration
   }
 }
 
-class DeferredGitHubIntegrationFinalizationLandingProofAdapter implements IntegrationFinalizationLandingProofPort {
+export class GitHubIntegrationFinalizationLandingProofAdapter implements IntegrationFinalizationLandingProofPort {
+  readonly #cwd?: string;
+  readonly #env?: Record<string, string>;
+
+  constructor(options: GitHubIntegrationFinalizationAdapterOptions = {}) {
+    this.#cwd = options.cwd;
+    this.#env = options.env;
+  }
+
   async prove({ targetBranch, landedCommit }: TargetBranchLandingProofOptions) {
-    return {
-      passed: false,
-      summary: `Integration Finalization needs attention because GitHub target-branch landing proof for ${landedCommit} on ${targetBranch} is not implemented in this slice.`,
-    };
+    try {
+      await execGit(
+        ["merge-base", "--is-ancestor", landedCommit, targetBranch],
+        {
+          cwd: this.#cwd,
+          env: this.#env,
+        },
+      );
+
+      return {
+        passed: true,
+        summary: `GitHub target-branch landing proof passed: ${landedCommit} is an ancestor of ${targetBranch}.`,
+      };
+    } catch (error) {
+      return {
+        passed: false,
+        summary: `Integration Finalization needs attention because GitHub target-branch landing proof failed: ${landedCommit} is not an ancestor of ${targetBranch}.${error instanceof Error && error.message ? ` ${error.message}` : ""}`,
+      };
+    }
   }
 }
 
-class DeferredGitHubIntegrationFinalizationBacklogAdapter implements IntegrationFinalizationBacklogPort {
-  async loadTaskState(): Promise<AcceptedForIntegrationTaskState> {
+const parseAcceptedTaskIssueNumber = (task: {
+  readonly id: string;
+  readonly issueNumber?: number;
+}): number => {
+  if (task.issueNumber !== undefined) return task.issueNumber;
+
+  const match =
+    task.id.match(/^#?(\d+)$/) ?? task.id.match(/github-issue:(\d+)$/);
+  const issueNumber = match?.[1] ? Number(match[1]) : Number.NaN;
+  if (!Number.isInteger(issueNumber)) {
+    throw new Error(
+      `Accepted child task id must reference a GitHub issue number: ${task.id}`,
+    );
+  }
+
+  return issueNumber;
+};
+
+export class GitHubIntegrationFinalizationBacklogAdapter implements IntegrationFinalizationBacklogPort {
+  readonly #backlog: GitHubIssueBacklog;
+
+  constructor(options: GitHubIntegrationFinalizationAdapterOptions = {}) {
+    this.#backlog = new GitHubIssueBacklog(options);
+  }
+
+  async loadTaskState(
+    task: Parameters<IntegrationFinalizationBacklogPort["loadTaskState"]>[0],
+  ): Promise<AcceptedForIntegrationTaskState> {
+    const issue = await this.#backlog.getIssue(
+      parseAcceptedTaskIssueNumber(task),
+    );
+
+    if (hasRecordedTaskCoordinationDone(issue.comments)) {
+      return { state: "done" };
+    }
+
+    if (hasRecordedTaskCoordinationAcceptedForIntegration(issue.comments)) {
+      return { state: "accepted-for-integration" };
+    }
+
     return { state: "other" };
   }
 
-  async markTaskDone(): Promise<void> {
-    throw new Error(
-      "GitHub child Task done/close mutations are implemented by a later Integration Finalization slice.",
-    );
+  async markTaskDone(
+    task: Parameters<IntegrationFinalizationBacklogPort["markTaskDone"]>[0],
+    outcome: Parameters<IntegrationFinalizationBacklogPort["markTaskDone"]>[1],
+  ): Promise<void> {
+    const issueNumber = parseAcceptedTaskIssueNumber(task);
+    const comment: TaskCoordinationComment = {
+      kind: "sandcastle-task-coordination",
+      version: 1,
+      event: "done",
+      runId: `sandcastle-finalization-${randomUUID()}`,
+      executionMode: "host",
+      recordedAt: new Date().toISOString(),
+      branch: outcome.branch,
+      commits: [outcome.landedCommit],
+      reason: outcome.summary,
+    };
+
+    await this.#backlog.markTaskDone(issueNumber, comment);
+    await this.#backlog.closeTask(issueNumber);
   }
 }
 
@@ -269,9 +376,10 @@ export const finalizeIntegration = async (
     ports: {
       coordinationPullRequests:
         new GitHubIntegrationFinalizationPullRequestAdapter(adapterOptions),
-      landingProof:
-        new DeferredGitHubIntegrationFinalizationLandingProofAdapter(),
-      backlog: new DeferredGitHubIntegrationFinalizationBacklogAdapter(),
+      landingProof: new GitHubIntegrationFinalizationLandingProofAdapter(
+        adapterOptions,
+      ),
+      backlog: new GitHubIntegrationFinalizationBacklogAdapter(adapterOptions),
       reporter: new GitHubIntegrationFinalizationReporterAdapter(
         adapterOptions,
       ),

@@ -1,9 +1,26 @@
+import { exec } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { renderCoordinationManifest } from "./CoordinationManifest.js";
 import {
+  formatTaskCoordinationComment,
+  parseTaskCoordinationComment,
+  type GitHubIssueComment,
+  type TaskCoordinationComment,
+} from "./GitHubIssueBacklog.js";
+import {
   finalizeIntegration,
+  GitHubIntegrationFinalizationLandingProofAdapter,
   GitHubIntegrationFinalizationPullRequestAdapter,
 } from "./index.js";
+
+const execAsync = promisify(exec);
+
+const shellEscape = (value: string): string =>
+  `'${value.replace(/'/g, `'\\''`)}'`;
 
 interface FakePullRequest {
   readonly number: number;
@@ -18,23 +35,54 @@ interface FakePullRequest {
   readonly comments: Array<{ body: string; createdAt?: string }>;
 }
 
-const manifestBody = () =>
+interface FakeIssue {
+  readonly number: number;
+  readonly title: string;
+  readonly body: string;
+  state: "OPEN" | "CLOSED";
+  readonly comments: GitHubIssueComment[];
+  readonly labels?: readonly string[];
+  readonly url?: string;
+}
+
+const manifestBody = (
+  acceptedForIntegrationTasks = [
+    {
+      task: { id: "#24", title: "GitHub finalization path" },
+      branch: "sandcastle/task/24-github-finalization",
+    },
+  ],
+) =>
   renderCoordinationManifest({
     parent: { id: "#21", title: "Parent PRD" },
     coordinatorBranch: "sandcastle/coordinator/21",
     targetBranch: "main",
     baseBranch: "main",
-    acceptedForIntegrationTasks: [
-      {
-        task: { id: "#24", title: "GitHub finalization path" },
-        branch: "sandcastle/task/24-github-finalization",
-      },
-    ],
+    acceptedForIntegrationTasks,
     mergeRecommendation: "recommend-merge",
     publishedAt: "2026-04-24T10:00:00.000Z",
   });
 
-const createFakeGh = (pullRequests: FakePullRequest[]) => {
+const acceptedForIntegrationComment = (
+  issueNumber: number,
+): GitHubIssueComment => ({
+  body: formatTaskCoordinationComment({
+    kind: "sandcastle-task-coordination",
+    version: 1,
+    event: "accepted-for-integration",
+    runId: `accepted-${issueNumber}`,
+    executionMode: "host",
+    recordedAt: "2026-04-24T10:30:00.000Z",
+    branch: `sandcastle/task/${issueNumber}`,
+    reason: "Accepted into the coordination PR.",
+  }),
+  createdAt: "2026-04-24T10:30:00.000Z",
+});
+
+const createFakeGh = (
+  pullRequests: FakePullRequest[],
+  issues: FakeIssue[] = [],
+) => {
   const commands: string[][] = [];
   const pullRequestsByNumber = new Map(
     pullRequests.map((pullRequest) => [pullRequest.number, pullRequest]),
@@ -42,9 +90,39 @@ const createFakeGh = (pullRequests: FakePullRequest[]) => {
   const pullRequestsByUrl = new Map(
     pullRequests.map((pullRequest) => [pullRequest.url, pullRequest]),
   );
+  const issuesByNumber = new Map(issues.map((issue) => [issue.number, issue]));
 
   const gh = async (args: string[]): Promise<string> => {
     commands.push(args);
+
+    if (args[0] === "issue" && args[1] === "view") {
+      const issue = issuesByNumber.get(Number(args[2]));
+      if (!issue) throw new Error(`Unknown issue ${args[2]}`);
+      return JSON.stringify({
+        ...issue,
+        labels: issue.labels ?? [],
+      });
+    }
+
+    if (args[0] === "issue" && args[1] === "comment") {
+      const issue = issuesByNumber.get(Number(args[2]));
+      const body = args[args.indexOf("--body") + 1];
+      if (!issue || body === undefined) {
+        throw new Error(`Unsupported gh args: ${args.join(" ")}`);
+      }
+      issue.comments.push({
+        body,
+        createdAt: "2026-04-24T11:30:00.000Z",
+      });
+      return "";
+    }
+
+    if (args[0] === "issue" && args[1] === "close") {
+      const issue = issuesByNumber.get(Number(args[2]));
+      if (!issue) throw new Error(`Unknown issue ${args[2]}`);
+      issue.state = "CLOSED";
+      return "";
+    }
 
     if (args[0] !== "pr") {
       throw new Error(`Unsupported gh args: ${args.join(" ")}`);
@@ -88,6 +166,46 @@ const childIssueMutationCommands = (commands: string[][]) =>
       (args[1] === "comment" || args[1] === "close" || args[1] === "edit"),
   );
 
+const prohibitedAutomationCommands = (commands: string[][]) =>
+  commands.filter((args) => {
+    const command = args.join(" ");
+    return (
+      command.startsWith("pr merge") ||
+      command.startsWith("pr checks") ||
+      command.startsWith("run ") ||
+      command.startsWith("workflow ") ||
+      command.includes(" release") ||
+      command.includes(" deploy")
+    );
+  });
+
+const setupMergedRepo = async () => {
+  const repo = await mkdtemp(join(tmpdir(), "sandcastle-finalization-"));
+  await execAsync("git init -b main", { cwd: repo });
+  await execAsync('git config user.email "test@test.com"', { cwd: repo });
+  await execAsync('git config user.name "Test"', { cwd: repo });
+  await writeFile(join(repo, "README.md"), "base\n");
+  await execAsync("git add README.md && git commit -m base", { cwd: repo });
+  await writeFile(join(repo, "finalized.txt"), "landed\n");
+  await execAsync(
+    `git add finalized.txt && git commit -m ${shellEscape("landed coordination PR")}`,
+    { cwd: repo },
+  );
+  const landedCommit = (
+    await execAsync("git rev-parse HEAD", { cwd: repo })
+  ).stdout.trim();
+
+  return { repo, landedCommit };
+};
+
+const doneEvents = (issue: FakeIssue): TaskCoordinationComment[] =>
+  issue.comments
+    .map((comment) => parseTaskCoordinationComment(comment.body))
+    .filter(
+      (comment): comment is TaskCoordinationComment =>
+        comment?.event === "done",
+    );
+
 describe("GitHubIntegrationFinalizationPullRequestAdapter", () => {
   it("loads PR state, branch information, merge metadata, body, and comments", async () => {
     const pullRequest: FakePullRequest = {
@@ -122,7 +240,256 @@ describe("GitHubIntegrationFinalizationPullRequestAdapter", () => {
   });
 });
 
+describe("GitHubIntegrationFinalizationLandingProofAdapter", () => {
+  it("proves the GitHub-reported landed commit is an ancestor of the current target branch in a real repository", async () => {
+    const { repo, landedCommit } = await setupMergedRepo();
+    try {
+      await execAsync("git checkout --orphan unrelated", { cwd: repo });
+      await execAsync("git rm -rf .", { cwd: repo });
+      await writeFile(join(repo, "unrelated.txt"), "unrelated\n");
+      await execAsync("git add unrelated.txt && git commit -m unrelated", {
+        cwd: repo,
+      });
+
+      const proof = new GitHubIntegrationFinalizationLandingProofAdapter({
+        cwd: repo,
+      });
+
+      await expect(
+        proof.prove({ targetBranch: "main", landedCommit }),
+      ).resolves.toMatchObject({ passed: true });
+      await expect(
+        proof.prove({ targetBranch: "unrelated", landedCommit }),
+      ).resolves.toMatchObject({ passed: false });
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("finalizeIntegration GitHub path", () => {
+  it("finalizes a merged coordination PR only after target-branch landing proof and accepted child task cross-check", async () => {
+    const { repo, landedCommit } = await setupMergedRepo();
+    try {
+      const childIssues: FakeIssue[] = [
+        {
+          number: 23,
+          title: "Add ports-first Integration Finalization core",
+          body: "## Parent\n\n#21",
+          state: "OPEN",
+          comments: [acceptedForIntegrationComment(23)],
+          labels: ["ready-for-agent"],
+          url: "https://github.com/Whamp/sandcastle/issues/23",
+        },
+        {
+          number: 24,
+          title: "Add GitHub Integration Finalization adapters",
+          body: "## Parent\n\n#21",
+          state: "OPEN",
+          comments: [acceptedForIntegrationComment(24)],
+          labels: ["ready-for-agent"],
+          url: "https://github.com/Whamp/sandcastle/issues/24",
+        },
+      ];
+      const pullRequest: FakePullRequest = {
+        number: 28,
+        url: "https://github.com/Whamp/sandcastle/pull/28",
+        state: "MERGED",
+        body: manifestBody([
+          {
+            task: { id: "#23", title: childIssues[0]!.title },
+            branch: "sandcastle/task/23-finalization-core",
+          },
+          {
+            task: { id: "#24", title: childIssues[1]!.title },
+            branch: "sandcastle/task/24-github-adapters",
+          },
+        ]),
+        headRefName: "sandcastle/coordinator/21",
+        baseRefName: "main",
+        mergedAt: "2026-04-24T12:00:00.000Z",
+        mergeCommit: { oid: landedCommit },
+        comments: [],
+      };
+      const { gh, commands } = createFakeGh([pullRequest], childIssues);
+
+      const result = await finalizeIntegration({
+        coordinationPullRequest: 28,
+        repo: "Whamp/sandcastle",
+        cwd: repo,
+        gh,
+      });
+
+      expect(result.outcome).toBe("finalized");
+      expect(result.reason).toBe("finalized");
+      expect(result.finalizedTasks.map((task) => task.id)).toEqual([
+        "#23",
+        "#24",
+      ]);
+      expect(childIssues.map((issue) => issue.state)).toEqual([
+        "CLOSED",
+        "CLOSED",
+      ]);
+      expect(doneEvents(childIssues[0]!)).toMatchObject([
+        {
+          kind: "sandcastle-task-coordination",
+          version: 1,
+          event: "done",
+          executionMode: "host",
+          branch: "sandcastle/task/23-finalization-core",
+          commits: [landedCommit],
+        },
+      ]);
+      expect(doneEvents(childIssues[1]!)).toMatchObject([
+        {
+          kind: "sandcastle-task-coordination",
+          version: 1,
+          event: "done",
+          executionMode: "host",
+          branch: "sandcastle/task/24-github-adapters",
+          commits: [landedCommit],
+        },
+      ]);
+      expect(pullRequest.comments).toHaveLength(1);
+      expect(pullRequest.comments[0]!.body).toContain(
+        "Integration Finalization finalized",
+      );
+      expect(pullRequest.comments[0]!.body).toContain('"targetBranch": "main"');
+      expect(pullRequest.comments[0]!.body).toContain(
+        `"landedCommit": "${landedCommit}"`,
+      );
+      expect(pullRequest.comments[0]!.body).toContain('"id": "#23"');
+      expect(pullRequest.comments[0]!.body).toContain('"id": "#24"');
+      expect(commands).toEqual([
+        [
+          "pr",
+          "view",
+          "28",
+          "--json",
+          "number,url,state,mergedAt,mergeCommit,headRefName,baseRefName,body,comments",
+          "--repo",
+          "Whamp/sandcastle",
+        ],
+        [
+          "issue",
+          "view",
+          "23",
+          "--json",
+          "number,title,body,state,comments,url,labels",
+          "--jq",
+          "{number: .number, title: .title, body: .body, state: .state, comments: .comments, url: .url, labels: [.labels[].name]}",
+          "--repo",
+          "Whamp/sandcastle",
+        ],
+        [
+          "issue",
+          "view",
+          "24",
+          "--json",
+          "number,title,body,state,comments,url,labels",
+          "--jq",
+          "{number: .number, title: .title, body: .body, state: .state, comments: .comments, url: .url, labels: [.labels[].name]}",
+          "--repo",
+          "Whamp/sandcastle",
+        ],
+        [
+          "issue",
+          "comment",
+          "23",
+          "--body",
+          childIssues[0]!.comments[1]!.body,
+          "--repo",
+          "Whamp/sandcastle",
+        ],
+        ["issue", "close", "23", "--repo", "Whamp/sandcastle"],
+        [
+          "issue",
+          "comment",
+          "24",
+          "--body",
+          childIssues[1]!.comments[1]!.body,
+          "--repo",
+          "Whamp/sandcastle",
+        ],
+        ["issue", "close", "24", "--repo", "Whamp/sandcastle"],
+        [
+          "pr",
+          "comment",
+          "28",
+          "--body",
+          pullRequest.comments[0]!.body,
+          "--repo",
+          "Whamp/sandcastle",
+        ],
+      ]);
+      expect(prohibitedAutomationCommands(commands)).toEqual([]);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("reports finalization needs attention and mutates no child issues when any manifest child task is not accepted for integration", async () => {
+    const { repo, landedCommit } = await setupMergedRepo();
+    try {
+      const childIssues: FakeIssue[] = [
+        {
+          number: 23,
+          title: "Accepted child task",
+          body: "## Parent\n\n#21",
+          state: "OPEN",
+          comments: [acceptedForIntegrationComment(23)],
+        },
+        {
+          number: 24,
+          title: "Still only ready child task",
+          body: "## Parent\n\n#21",
+          state: "OPEN",
+          comments: [],
+        },
+      ];
+      const pullRequest: FakePullRequest = {
+        number: 29,
+        url: "https://github.com/Whamp/sandcastle/pull/29",
+        state: "MERGED",
+        body: manifestBody([
+          {
+            task: { id: "#23", title: childIssues[0]!.title },
+            branch: "sandcastle/task/23-finalization-core",
+          },
+          {
+            task: { id: "#24", title: childIssues[1]!.title },
+            branch: "sandcastle/task/24-github-adapters",
+          },
+        ]),
+        headRefName: "sandcastle/coordinator/21",
+        baseRefName: "main",
+        mergedAt: "2026-04-24T12:00:00.000Z",
+        mergeCommit: { oid: landedCommit },
+        comments: [],
+      };
+      const { gh, commands } = createFakeGh([pullRequest], childIssues);
+
+      const result = await finalizeIntegration({
+        coordinationPullRequest: 29,
+        repo: "Whamp/sandcastle",
+        cwd: repo,
+        gh,
+      });
+
+      expect(result.outcome).toBe("finalization-needs-attention");
+      expect(result.reason).toBe("accepted-task-state-inconsistent");
+      expect(result.finalizedTasks).toEqual([]);
+      expect(childIssues.map((issue) => issue.state)).toEqual(["OPEN", "OPEN"]);
+      expect(childIssueMutationCommands(commands)).toEqual([]);
+      expect(pullRequest.comments).toHaveLength(1);
+      expect(pullRequest.comments[0]!.body).toContain(
+        "accepted-task-state-inconsistent",
+      );
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
   it("loads an open coordination PR by number, reports pending on the PR, and mutates no child issues", async () => {
     const pullRequest: FakePullRequest = {
       number: 24,

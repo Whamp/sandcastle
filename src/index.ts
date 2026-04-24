@@ -69,6 +69,8 @@ export { renderImplementationCoordinationReport } from "./ImplementationCoordina
 export { runIntegrationFinalization } from "./IntegrationFinalization.js";
 export {
   finalizeIntegration,
+  GitHubIntegrationFinalizationBacklogAdapter,
+  GitHubIntegrationFinalizationLandingProofAdapter,
   GitHubIntegrationFinalizationPullRequestAdapter,
   GitHubIntegrationFinalizationReporterAdapter,
 } from "./GitHubIntegrationFinalization.js";
