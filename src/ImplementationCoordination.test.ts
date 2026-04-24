@@ -5,6 +5,7 @@ import {
   type ImplementationCoordinationOptions,
   type ImplementationCoordinationPorts,
   type ParentEffort,
+  type MergeResult,
   type ParentRef,
   type ReviewFinding,
   type ReviewerResult,
@@ -43,9 +44,11 @@ class FakePorts {
     { summary: "implemented task" },
   ];
   reviewerResults: Array<ReviewerResult | unknown | Error> = [{ findings: [] }];
-  taskVerifications: VerificationResult[] = [passedVerification("task")];
+  taskVerifications: Array<VerificationResult | Error> = [
+    passedVerification("task"),
+  ];
   coordinatorVerification = passedVerification("coordinator");
-  mergeResult = { merged: true, summary: "merged" };
+  mergeResult: MergeResult | Error = { merged: true, summary: "merged" };
   hasIntegratedChanges = true;
 
   ports(): ImplementationCoordinationPorts {
@@ -93,6 +96,9 @@ class FakePorts {
         },
         mergeTaskIntoCoordinator: async ({ task }) => {
           this.events.push(`workspace:merge-task:${task.id}`);
+          if (this.mergeResult instanceof Error) {
+            throw this.mergeResult;
+          }
           return this.mergeResult;
         },
         hasIntegratedChanges: async () => {
@@ -128,9 +134,15 @@ class FakePorts {
       verifier: {
         verify: async ({ target, task }) => {
           this.events.push(`verify:${target}${task ? `:${task.id}` : ""}`);
-          return target === "task"
-            ? (this.taskVerifications.shift() ?? passedVerification("task"))
-            : this.coordinatorVerification;
+          if (target !== "task") {
+            return this.coordinatorVerification;
+          }
+          const result =
+            this.taskVerifications.shift() ?? passedVerification("task");
+          if (result instanceof Error) {
+            throw result;
+          }
+          return result;
         },
       },
       pullRequests: {
@@ -425,6 +437,87 @@ describe("coordinateImplementation", () => {
     });
     expect(result.pullRequest).toBeUndefined();
     expect(fake.events).not.toContain("backlog:done:task-14");
+  });
+
+  it("marks task verifier rejection needs-attention and releases the claim", async () => {
+    const fake = new FakePorts();
+    fake.taskVerifications = [new Error("task verification command crashed")];
+
+    const result = await fake.run();
+
+    expect(result.completedTasks).toEqual([]);
+    expect(result.needsAttentionTasks[0]).toMatchObject({
+      task: readyTask,
+      reason: "task-verification-failed",
+      summary: "task verification command crashed",
+      branch: "task/task-14",
+      workspace: "/worktrees/task-14",
+    });
+    expect(fake.needsAttentionOutcomes[0]).toMatchObject({
+      task: readyTask,
+      outcome: {
+        reason: "task-verification-failed",
+        summary: "task verification command crashed",
+        branch: "task/task-14",
+        workspace: "/worktrees/task-14",
+      },
+    });
+    expect(fake.events).toEqual([
+      "workspace:create-coordinator",
+      "backlog:claim:task-14",
+      "workspace:create-task:task-14",
+      "agent:worker:task-14:task/task-14",
+      "agent:reviewer:task-14:task/task-14",
+      "verify:task:task-14",
+      "backlog:needs-attention:task-14",
+      "backlog:release:task-14:task-verification-failed",
+    ]);
+    expect(fake.events).not.toContain("backlog:done:task-14");
+    expect(fake.events).not.toContain("workspace:merge-task:task-14");
+    expect(fake.events).not.toContain("pull-request:publish");
+    expect(result.pullRequest).toBeUndefined();
+    expect(result.mergeRecommendation).toBe("do-not-recommend-merge-yet");
+  });
+
+  it("marks merge adapter rejection needs-attention and releases the claim", async () => {
+    const fake = new FakePorts();
+    fake.mergeResult = new Error("merge driver crashed");
+
+    const result = await fake.run();
+
+    expect(result.completedTasks).toEqual([]);
+    expect(result.needsAttentionTasks[0]).toMatchObject({
+      task: readyTask,
+      reason: "merge-failed",
+      summary: "merge driver crashed",
+      branch: "task/task-14",
+      workspace: "/worktrees/task-14",
+    });
+    expect(fake.needsAttentionOutcomes[0]).toMatchObject({
+      task: readyTask,
+      outcome: {
+        reason: "merge-failed",
+        summary: "merge driver crashed",
+        branch: "task/task-14",
+        workspace: "/worktrees/task-14",
+      },
+    });
+    expect(fake.events).toEqual([
+      "workspace:create-coordinator",
+      "backlog:claim:task-14",
+      "workspace:create-task:task-14",
+      "agent:worker:task-14:task/task-14",
+      "agent:reviewer:task-14:task/task-14",
+      "verify:task:task-14",
+      "workspace:merge-task:task-14",
+      "backlog:needs-attention:task-14",
+      "backlog:release:task-14:merge-failed",
+    ]);
+    expect(fake.events).not.toContain("backlog:done:task-14");
+    expect(fake.events).not.toContain("verify:coordinator");
+    expect(fake.events).not.toContain("pull-request:publish");
+    expect(result.pullRequest).toBeUndefined();
+    expect(result.mergeRecommendation).toBe("do-not-recommend-merge-yet");
   });
 
   it("continues to later unblocked tasks after an earlier needs-attention task", async () => {

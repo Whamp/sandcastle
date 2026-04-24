@@ -599,13 +599,26 @@ export const runImplementationCoordination = async (
 
     nonBlockingReviewFindings.push(...acceptedReviewFindings);
 
-    const taskVerification = await verifier.verify({
-      target: "task",
-      parent,
-      task,
-      taskWorkspace,
-      coordinatorWorkspace,
-    });
+    let taskVerification: VerificationResult;
+    try {
+      taskVerification = await verifier.verify({
+        target: "task",
+        parent,
+        task,
+        taskWorkspace,
+        coordinatorWorkspace,
+      });
+    } catch (error) {
+      await markNeedsAttention(
+        buildNeedsAttentionOutcome({
+          task,
+          taskWorkspace,
+          reason: "task-verification-failed",
+          summary: errorSummary(error),
+        }),
+      );
+      continue;
+    }
     if (!taskVerification.passed) {
       await markNeedsAttention(
         buildNeedsAttentionOutcome({
@@ -619,11 +632,24 @@ export const runImplementationCoordination = async (
       continue;
     }
 
-    const mergeResult = await workspace.mergeTaskIntoCoordinator({
-      task,
-      taskWorkspace,
-      coordinatorWorkspace,
-    });
+    let mergeResult: MergeResult;
+    try {
+      mergeResult = await workspace.mergeTaskIntoCoordinator({
+        task,
+        taskWorkspace,
+        coordinatorWorkspace,
+      });
+    } catch (error) {
+      await markNeedsAttention(
+        buildNeedsAttentionOutcome({
+          task,
+          taskWorkspace,
+          reason: "merge-failed",
+          summary: errorSummary(error),
+        }),
+      );
+      continue;
+    }
     if (!mergeResult.merged) {
       await markNeedsAttention(
         buildNeedsAttentionOutcome({
