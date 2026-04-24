@@ -53,8 +53,82 @@ export type {
   OpenCodeOptions,
   PiOptions,
 } from "./AgentProvider.js";
-export { GitHubIssueBacklog } from "./GitHubIssueBacklog.js";
+export {
+  GitHubImplementationBacklogAdapter,
+  GitHubIssueBacklog,
+} from "./GitHubIssueBacklog.js";
+export type { GitHubImplementationBacklogAdapterOptions } from "./GitHubIssueBacklog.js";
 export { executeNextGitHubIssueTask } from "./GitHubIssueSuccessPath.js";
+export {
+  coordinateImplementation,
+  runImplementationCoordination,
+  NO_ACCEPTED_ISSUE_BRANCH_NO_PR_REASON,
+  TaskClaimConflictError,
+} from "./ImplementationCoordination.js";
+export { renderImplementationCoordinationReport } from "./ImplementationCoordinationReport.js";
+export { GitHubImplementationPullRequestAdapter } from "./GitHubImplementationPullRequestAdapter.js";
+export type { GitHubImplementationPullRequestAdapterOptions } from "./GitHubImplementationPullRequestAdapter.js";
+export {
+  LocalImplementationAgentRunnerAdapter,
+  LocalImplementationVerifierAdapter,
+  LocalImplementationWorkspaceAdapter,
+} from "./ImplementationCoordinationLocalAdapters.js";
+export type {
+  LocalImplementationAgentRunnerAdapterOptions,
+  LocalImplementationVerifierAdapterOptions,
+  LocalImplementationWorkspaceAdapterOptions,
+} from "./ImplementationCoordinationLocalAdapters.js";
+export type {
+  BlockedOutcome,
+  BlockedTaskResult,
+  CoordinationPullRequest,
+  CoordinatorWorkspace,
+  CreateCoordinatorWorkspaceOptions,
+  CreateOrUpdateCoordinationPullRequestOptions,
+  CreateTaskWorkspaceOptions,
+  DoneOutcome,
+  AcceptedForIntegrationOutcome,
+  HasIntegratedChangesOptions,
+  ImplementationCoordinationAgentRunnerPort,
+  ImplementationCoordinationBacklogPort,
+  CoordinateImplementationExecutionOptions,
+  CoordinateImplementationOptions,
+  CoordinateImplementationPullRequestOptions,
+  CoordinateImplementationVerificationOptions,
+  ImplementationCoordinationAdapterFactories,
+  ImplementationCoordinationAgentRunnerFactoryOptions,
+  ImplementationCoordinationBacklogFactoryOptions,
+  ImplementationCoordinationOptions,
+  ImplementationCoordinationPolicy,
+  ImplementationCoordinationPorts,
+  ImplementationCoordinationPullRequestFactoryOptions,
+  ImplementationCoordinationVerifierFactoryOptions,
+  ImplementationCoordinationWorkspaceFactoryOptions,
+  ImplementationCoordinationPullRequestPort,
+  ImplementationCoordinationResult,
+  ImplementationCoordinationWorkspacePort,
+  AcceptedForIntegrationTask,
+  MergeRecommendation,
+  MergeResult,
+  MergeTaskOptions,
+  NeedsAttentionOutcome,
+  NeedsAttentionReason,
+  NeedsAttentionTaskResult,
+  ParentEffort,
+  ParentRef,
+  PushCoordinatorOptions,
+  ReviewFinding,
+  ReviewerResult,
+  RunReviewerOptions,
+  RunWorkerOptions,
+  ScopedTask,
+  TaskWorkspace,
+  VerificationCommandResult,
+  VerificationPort,
+  VerificationResult,
+  VerifyOptions,
+  WorkerResult,
+} from "./ImplementationCoordination.js";
 export {
   createBindMountSandboxProvider,
   createIsolatedSandboxProvider,

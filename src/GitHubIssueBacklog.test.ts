@@ -224,6 +224,36 @@ describe("GitHubIssueBacklog task coordination comments", () => {
     ).toBe(false);
   });
 
+  it("treats an accepted-for-integration comment as resolving a prior claim", () => {
+    const claim = formatTaskCoordinationComment({
+      kind: "sandcastle-task-coordination",
+      version: 1,
+      event: "claim",
+      runId: "run-claim",
+      executionMode: "host",
+      recordedAt: "2026-04-19T00:00:00.000Z",
+    });
+    const acceptedForIntegration = formatTaskCoordinationComment({
+      kind: "sandcastle-task-coordination",
+      version: 1,
+      event: "accepted-for-integration",
+      runId: "run-accepted",
+      executionMode: "host",
+      recordedAt: "2026-04-19T00:01:00.000Z",
+      branch: "coordinator/parent",
+    });
+
+    expect(parseTaskCoordinationComment(acceptedForIntegration)?.event).toBe(
+      "accepted-for-integration",
+    );
+    expect(
+      hasUnresolvedTaskCoordinationClaim([
+        { body: claim },
+        { body: acceptedForIntegration },
+      ]),
+    ).toBe(false);
+  });
+
   it("treats a needs-attention comment as resolving a prior claim", () => {
     const claim = formatTaskCoordinationComment({
       kind: "sandcastle-task-coordination",
