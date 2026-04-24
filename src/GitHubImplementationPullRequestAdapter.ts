@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { upsertCoordinationManifest } from "./CoordinationManifest.js";
 import type {
   CoordinationPullRequest,
   CreateOrUpdateCoordinationPullRequestOptions,
@@ -16,7 +17,9 @@ export interface GitHubImplementationPullRequestAdapterOptions {
   readonly env?: Record<string, string>;
   readonly gh?: GitHubCommandRunner;
   readonly baseBranch?: string;
+  readonly targetBranch?: string;
   readonly draft?: boolean;
+  readonly now?: () => Date;
 }
 
 interface GitHubPullRequestListItem {
@@ -72,12 +75,16 @@ export class GitHubImplementationPullRequestAdapter implements ImplementationCoo
   readonly #gh: GitHubCommandRunner;
   readonly #repo?: string;
   readonly #baseBranch: string;
+  readonly #targetBranch: string;
   readonly #draft: boolean;
+  readonly #now: () => Date;
 
   constructor(options: GitHubImplementationPullRequestAdapterOptions = {}) {
     this.#repo = options.repo;
     this.#baseBranch = options.baseBranch ?? "main";
+    this.#targetBranch = options.targetBranch ?? this.#baseBranch;
     this.#draft = options.draft ?? false;
+    this.#now = options.now ?? (() => new Date());
     this.#gh =
       options.gh ??
       ((args) =>
@@ -101,8 +108,17 @@ export class GitHubImplementationPullRequestAdapter implements ImplementationCoo
       );
     }
 
-    const body =
+    const reportBody =
       options.body || renderImplementationCoordinationReport(options);
+    const body = upsertCoordinationManifest(reportBody, {
+      parent: options.parent,
+      coordinatorBranch: headBranch,
+      targetBranch: this.#targetBranch,
+      baseBranch: this.#baseBranch,
+      acceptedForIntegrationTasks: options.acceptedForIntegrationTasks,
+      mergeRecommendation: options.mergeRecommendation,
+      publishedAt: this.#now().toISOString(),
+    });
     const title = buildTitle(options);
     const existingPullRequests = JSON.parse(
       await this.#gh([

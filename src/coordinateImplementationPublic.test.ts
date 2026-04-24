@@ -112,7 +112,7 @@ describe("public coordinateImplementation", () => {
       },
       pullRequests: (options) => {
         events.push(
-          `factory:pr:${options.baseBranch}:${String(options.draft)}:${options.cwd ?? "default"}`,
+          `factory:pr:${options.targetBranch}:${options.baseBranch}:${String(options.draft)}:${options.cwd ?? "default"}`,
         );
         return successfulPorts(events).pullRequests;
       },
@@ -129,7 +129,7 @@ describe("public coordinateImplementation", () => {
       "factory:workspace:default:main:generated",
       "factory:agent:worker:worker:no-sandbox",
       "factory:verifier:npm run typecheck",
-      "factory:pr:main:false:default",
+      "factory:pr:main:main:false:default",
       "load-parent:github-issue:18",
     ]);
     expect(result.pullRequest?.url).toBe("https://example.test/pr/18");
@@ -165,7 +165,7 @@ describe("public coordinateImplementation", () => {
       },
       pullRequests: (options) => {
         events.push(
-          `pr:${options.baseBranch}:${String(options.draft)}:${options.repo}:${options.cwd}`,
+          `pr:${options.targetBranch}:${options.baseBranch}:${String(options.draft)}:${options.repo}:${options.cwd}`,
         );
         return successfulPorts(events).pullRequests;
       },
@@ -202,7 +202,7 @@ describe("public coordinateImplementation", () => {
       "workspace:/repo:develop:coord/18:task:upstream",
       "agent:worker:reviewer:custom-sandbox:3:2:stdout",
       "verifier:npm run typecheck+npm test:/verification-workdir",
-      "pr:release:true:Whamp/sandcastle:/repo",
+      "pr:develop:release:true:Whamp/sandcastle:/repo",
     ]);
   });
 
