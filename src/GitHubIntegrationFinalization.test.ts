@@ -807,6 +807,244 @@ describe("finalizeIntegration GitHub path", () => {
     }
   });
 
+  it("scopes child issue commands to the PR URL repository when no explicit repo is supplied", async () => {
+    const { repo, landedCommit } = await setupMergedRepo();
+    try {
+      const branch = "sandcastle/task/23-finalization-core";
+      const childIssue: FakeIssue = {
+        number: 23,
+        title: "Finalize child task from PR URL repo",
+        body: "## Parent\n\n#21",
+        state: "OPEN",
+        comments: [acceptedForIntegrationComment(23, branch)],
+      };
+      const pullRequest: FakePullRequest = {
+        number: 39,
+        url: "https://github.com/Whamp/sandcastle/pull/39",
+        state: "MERGED",
+        body: manifestBody([
+          {
+            task: { id: "#23", title: childIssue.title },
+            branch,
+          },
+        ]),
+        headRefName: "sandcastle/coordinator/21",
+        baseRefName: "main",
+        mergedAt: "2026-04-24T12:00:00.000Z",
+        mergeCommit: { oid: landedCommit },
+        comments: [],
+      };
+      const { gh, commands } = createFakeGh([pullRequest], [childIssue]);
+
+      const result = await finalizeIntegration({
+        coordinationPullRequest: pullRequest.url,
+        cwd: repo,
+        gh,
+      });
+
+      expect(result.outcome).toBe("finalized");
+      expect(commands).toContainEqual([
+        "pr",
+        "view",
+        pullRequest.url,
+        "--json",
+        "number,url,state,mergedAt,mergeCommit,headRefName,baseRefName,body,comments",
+      ]);
+      expect(commands).toContainEqual([
+        "issue",
+        "view",
+        "23",
+        "--json",
+        "number,title,body,state,comments,url,labels",
+        "--jq",
+        "{number: .number, title: .title, body: .body, state: .state, comments: .comments, url: .url, labels: [.labels[].name]}",
+        "--repo",
+        "Whamp/sandcastle",
+      ]);
+      expect(childIssueMutationCommands(commands)).toEqual([
+        [
+          "issue",
+          "comment",
+          "23",
+          "--body",
+          childIssue.comments[1]!.body,
+          "--repo",
+          "Whamp/sandcastle",
+        ],
+        ["issue", "close", "23", "--repo", "Whamp/sandcastle"],
+      ]);
+      expect(commands).toContainEqual([
+        "pr",
+        "comment",
+        pullRequest.url,
+        "--body",
+        pullRequest.comments[0]!.body,
+      ]);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps an explicit repo override for child issue commands when the coordination PR is a URL", async () => {
+    const { repo, landedCommit } = await setupMergedRepo();
+    try {
+      const branch = "sandcastle/task/23-finalization-core";
+      const childIssue: FakeIssue = {
+        number: 23,
+        title: "Finalize child task with explicit repo",
+        body: "## Parent\n\n#21",
+        state: "OPEN",
+        comments: [acceptedForIntegrationComment(23, branch)],
+      };
+      const pullRequest: FakePullRequest = {
+        number: 43,
+        url: "https://github.com/Whamp/sandcastle/pull/43",
+        state: "MERGED",
+        body: manifestBody([
+          {
+            task: { id: "#23", title: childIssue.title },
+            branch,
+          },
+        ]),
+        headRefName: "sandcastle/coordinator/21",
+        baseRefName: "main",
+        mergedAt: "2026-04-24T12:00:00.000Z",
+        mergeCommit: { oid: landedCommit },
+        comments: [],
+      };
+      const { gh, commands } = createFakeGh([pullRequest], [childIssue]);
+
+      const result = await finalizeIntegration({
+        coordinationPullRequest: pullRequest.url,
+        repo: "Override/repo",
+        cwd: repo,
+        gh,
+      });
+
+      expect(result.outcome).toBe("finalized");
+      expect(commands).toContainEqual([
+        "pr",
+        "view",
+        pullRequest.url,
+        "--json",
+        "number,url,state,mergedAt,mergeCommit,headRefName,baseRefName,body,comments",
+      ]);
+      expect(childIssueMutationCommands(commands)).toEqual([
+        [
+          "issue",
+          "comment",
+          "23",
+          "--body",
+          childIssue.comments[1]!.body,
+          "--repo",
+          "Override/repo",
+        ],
+        ["issue", "close", "23", "--repo", "Override/repo"],
+      ]);
+      expect(commands).toContainEqual([
+        "pr",
+        "comment",
+        pullRequest.url,
+        "--body",
+        pullRequest.comments[0]!.body,
+      ]);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("reports finalization needs attention and mutates no child issues when an accepted manifest task cannot map to a GitHub issue", async () => {
+    const { repo, landedCommit } = await setupMergedRepo();
+    try {
+      const pullRequest: FakePullRequest = {
+        number: 40,
+        url: "https://github.com/Whamp/sandcastle/pull/40",
+        state: "MERGED",
+        body: manifestBody([
+          {
+            task: { id: "local-task-id", title: "Unmappable child task" },
+            branch: "sandcastle/task/local-task-id",
+          },
+        ]),
+        headRefName: "sandcastle/coordinator/21",
+        baseRefName: "main",
+        mergedAt: "2026-04-24T12:00:00.000Z",
+        mergeCommit: { oid: landedCommit },
+        comments: [],
+      };
+      const { gh, commands } = createFakeGh([pullRequest]);
+
+      const result = await finalizeIntegration({
+        coordinationPullRequest: 40,
+        repo: "Whamp/sandcastle",
+        cwd: repo,
+        gh,
+      });
+
+      expect(result.outcome).toBe("finalization-needs-attention");
+      expect(result.reason).toBe("accepted-task-state-inconsistent");
+      expect(result.finalizedTasks).toEqual([]);
+      expect(commands.filter((args) => args[0] === "issue")).toEqual([]);
+      expect(pullRequest.comments).toHaveLength(1);
+      expect(pullRequest.comments[0]!.body).toContain(
+        "Integration Finalization needs attention",
+      );
+      expect(pullRequest.comments[0]!.body).toContain(
+        "accepted-task-state-inconsistent",
+      );
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("honors an explicit reportPullRequest while defaulting finalization reports to the coordination PR", async () => {
+    const coordinationPullRequest: FakePullRequest = {
+      number: 41,
+      url: "https://github.com/Whamp/sandcastle/pull/41",
+      state: "OPEN",
+      body: manifestBody(),
+      headRefName: "sandcastle/coordinator/21",
+      baseRefName: "main",
+      mergedAt: null,
+      mergeCommit: null,
+      comments: [],
+    };
+    const reportPullRequest: FakePullRequest = {
+      number: 42,
+      url: "https://github.com/Whamp/sandcastle/pull/42",
+      state: "OPEN",
+      body: "Report target",
+      comments: [],
+    };
+    const { gh, commands } = createFakeGh([
+      coordinationPullRequest,
+      reportPullRequest,
+    ]);
+
+    const result = await finalizeIntegration({
+      coordinationPullRequest: 41,
+      reportPullRequest: { number: 42 },
+      repo: "Whamp/sandcastle",
+      gh,
+    });
+
+    expect(result.outcome).toBe("pending");
+    expect(coordinationPullRequest.comments).toEqual([]);
+    expect(reportPullRequest.comments).toHaveLength(1);
+    expect(reportPullRequest.comments[0]!.body).toContain(
+      "Integration Finalization pending",
+    );
+    expect(commands).toContainEqual([
+      "pr",
+      "comment",
+      "42",
+      "--body",
+      reportPullRequest.comments[0]!.body,
+      "--repo",
+      "Whamp/sandcastle",
+    ]);
+  });
+
   it("reports finalization needs attention and mutates no child issues when any manifest child task is not accepted for integration", async () => {
     const { repo, landedCommit } = await setupMergedRepo();
     try {

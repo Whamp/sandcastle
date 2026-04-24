@@ -112,6 +112,20 @@ const isPullRequestUrlCommand = (args: readonly string[]): boolean =>
 const withRepo = (args: string[], repo?: string): string[] =>
   repo && !isPullRequestUrlCommand(args) ? [...args, "--repo", repo] : args;
 
+const parseRepositoryFromPullRequestUrl = (url: string): string | undefined => {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname.toLowerCase() !== "github.com") return undefined;
+    const [owner, repo, resource, number] = parsed.pathname
+      .split("/")
+      .filter(Boolean);
+    if (!owner || !repo || resource !== "pull" || !number) return undefined;
+    return `${owner}/${repo}`;
+  } catch {
+    return undefined;
+  }
+};
+
 const toPullRequestRef = (
   input: GitHubIntegrationFinalizationPullRequestInput,
 ): IntegrationFinalizationPullRequestRef => {
@@ -361,19 +375,13 @@ const hasCurrentDoneEventMatchingFinalization = (
 const parseAcceptedTaskIssueNumber = (task: {
   readonly id: string;
   readonly issueNumber?: number;
-}): number => {
+}): number | undefined => {
   if (task.issueNumber !== undefined) return task.issueNumber;
 
   const match =
     task.id.match(/^#?(\d+)$/) ?? task.id.match(/github-issue:(\d+)$/);
   const issueNumber = match?.[1] ? Number(match[1]) : Number.NaN;
-  if (!Number.isInteger(issueNumber)) {
-    throw new Error(
-      `Accepted child task id must reference a GitHub issue number: ${task.id}`,
-    );
-  }
-
-  return issueNumber;
+  return Number.isInteger(issueNumber) ? issueNumber : undefined;
 };
 
 export class GitHubIntegrationFinalizationBacklogAdapter implements IntegrationFinalizationBacklogPort {
@@ -389,6 +397,10 @@ export class GitHubIntegrationFinalizationBacklogAdapter implements IntegrationF
     outcome: Parameters<IntegrationFinalizationBacklogPort["loadTaskState"]>[1],
   ): Promise<AcceptedForIntegrationTaskState> {
     const issueNumber = parseAcceptedTaskIssueNumber(task);
+    if (issueNumber === undefined) {
+      return { state: "other" };
+    }
+
     const issue = await this.#backlog.getIssue(issueNumber);
     this.#loadedIssues.set(issueNumber, issue);
 
@@ -418,6 +430,12 @@ export class GitHubIntegrationFinalizationBacklogAdapter implements IntegrationF
     outcome: Parameters<IntegrationFinalizationBacklogPort["markTaskDone"]>[1],
   ): Promise<void> {
     const issueNumber = parseAcceptedTaskIssueNumber(task);
+    if (issueNumber === undefined) {
+      throw new Error(
+        `Accepted child task id must reference a GitHub issue number: ${task.id}`,
+      );
+    }
+
     const comment: TaskCoordinationComment = {
       kind: "sandcastle-task-coordination",
       version: 1,
@@ -452,17 +470,23 @@ export const finalizeIntegration = async (
   const coordinationPullRequest = toPullRequestRef(
     options.coordinationPullRequest,
   );
+  const repo =
+    options.repo ??
+    (coordinationPullRequest.url
+      ? parseRepositoryFromPullRequestUrl(coordinationPullRequest.url)
+      : undefined);
   const gh = (args: string[]) =>
     options.gh
-      ? options.gh(withRepo(args, options.repo))
-      : execGh(withRepo(args, options.repo), {
+      ? options.gh(withRepo(args, repo))
+      : execGh(withRepo(args, repo), {
           cwd: options.cwd,
           env: options.env,
         });
   const adapterOptions = {
     ...options,
+    repo,
     gh,
-    reportPullRequest: coordinationPullRequest,
+    reportPullRequest: options.reportPullRequest ?? coordinationPullRequest,
   };
 
   return runIntegrationFinalization({
