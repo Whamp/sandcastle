@@ -66,6 +66,21 @@ export {
   TaskClaimConflictError,
 } from "./ImplementationCoordination.js";
 export { renderImplementationCoordinationReport } from "./ImplementationCoordinationReport.js";
+export {
+  COORDINATION_MANIFEST_KIND,
+  COORDINATION_MANIFEST_VERSION,
+  parseCoordinationManifest,
+  parseCoordinationManifestFromBody,
+  renderCoordinationManifest,
+  upsertCoordinationManifest,
+} from "./CoordinationManifest.js";
+export type {
+  CoordinationManifest,
+  CoordinationManifestAcceptedTask,
+  CoordinationManifestParentScope,
+  CoordinationManifestPublication,
+  RenderCoordinationManifestOptions,
+} from "./CoordinationManifest.js";
 export { GitHubImplementationPullRequestAdapter } from "./GitHubImplementationPullRequestAdapter.js";
 export type { GitHubImplementationPullRequestAdapterOptions } from "./GitHubImplementationPullRequestAdapter.js";
 export {

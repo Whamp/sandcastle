@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { upsertCoordinationManifest } from "./CoordinationManifest.js";
 import type {
   CoordinationPullRequest,
   CreateOrUpdateCoordinationPullRequestOptions,
@@ -16,12 +17,15 @@ export interface GitHubImplementationPullRequestAdapterOptions {
   readonly env?: Record<string, string>;
   readonly gh?: GitHubCommandRunner;
   readonly baseBranch?: string;
+  readonly targetBranch?: string;
   readonly draft?: boolean;
+  readonly now?: () => Date;
 }
 
 interface GitHubPullRequestListItem {
   readonly number: number;
   readonly url: string;
+  readonly baseRefName?: string;
 }
 
 const withRepo = (args: string[], repo?: string): string[] =>
@@ -73,11 +77,13 @@ export class GitHubImplementationPullRequestAdapter implements ImplementationCoo
   readonly #repo?: string;
   readonly #baseBranch: string;
   readonly #draft: boolean;
+  readonly #now: () => Date;
 
   constructor(options: GitHubImplementationPullRequestAdapterOptions = {}) {
     this.#repo = options.repo;
     this.#baseBranch = options.baseBranch ?? "main";
     this.#draft = options.draft ?? false;
+    this.#now = options.now ?? (() => new Date());
     this.#gh =
       options.gh ??
       ((args) =>
@@ -101,8 +107,6 @@ export class GitHubImplementationPullRequestAdapter implements ImplementationCoo
       );
     }
 
-    const body =
-      options.body || renderImplementationCoordinationReport(options);
     const title = buildTitle(options);
     const existingPullRequests = JSON.parse(
       await this.#gh([
@@ -113,10 +117,22 @@ export class GitHubImplementationPullRequestAdapter implements ImplementationCoo
         "--head",
         headBranch,
         "--json",
-        "number,url",
+        "number,url,baseRefName",
       ]),
     ) as GitHubPullRequestListItem[];
     const existingPullRequest = existingPullRequests[0];
+    const prBaseBranch = existingPullRequest?.baseRefName ?? this.#baseBranch;
+    const reportBody =
+      options.body || renderImplementationCoordinationReport(options);
+    const body = upsertCoordinationManifest(reportBody, {
+      parent: options.parent,
+      coordinatorBranch: headBranch,
+      targetBranch: prBaseBranch,
+      baseBranch: prBaseBranch,
+      acceptedForIntegrationTasks: options.acceptedForIntegrationTasks,
+      mergeRecommendation: options.mergeRecommendation,
+      publishedAt: this.#now().toISOString(),
+    });
 
     if (existingPullRequest) {
       await this.#gh([
