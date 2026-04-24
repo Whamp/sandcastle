@@ -64,6 +64,15 @@ const setupRepo = async () => {
 const parent = { id: "16", title: "Local adapters" };
 const task: ScopedTask = { id: "task-1", title: "First task" };
 
+const localRunnerRequiresWorkspace = () => {
+  // @ts-expect-error Local runner requires the workspace adapter that created the task worktree.
+  new LocalImplementationAgentRunnerAdapter({
+    workerAgent: {} as AgentProvider,
+    sandbox: noSandbox(),
+  });
+};
+void localRunnerRequiresWorkspace;
+
 describe("LocalImplementationWorkspaceAdapter", () => {
   it("creates coordinator and task worktrees from the configured base and current coordinator branch", async () => {
     const repo = await setupRepo();
@@ -109,13 +118,71 @@ describe("LocalImplementationWorkspaceAdapter", () => {
         coordinatorWorkspace: coordinator,
       });
 
-      expect(taskWorkspace.branch).toBe("sandcastle/task/task-1");
+      expect(taskWorkspace.branch).toMatch(/^sandcastle\/task\/task-1-/);
       expect(
         execSync("git rev-parse HEAD", {
           cwd: taskWorkspace.path,
           encoding: "utf-8",
         }).trim(),
       ).toBe(coordinatorSha);
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
+  it("creates a fresh task branch from the latest coordinator state on repeated task workspace creation", async () => {
+    const repo = await setupRepo();
+    try {
+      const workspace = new LocalImplementationWorkspaceAdapter({
+        cwd: repo,
+        coordinatorBranch: "sandcastle/coordinator-16",
+        taskBranchPrefix: "sandcastle/task",
+      });
+      const coordinator = await workspace.createCoordinatorWorkspace({
+        parent,
+      });
+
+      await commitFile(
+        coordinator.path,
+        "first.txt",
+        "first\n",
+        "first coordinator change",
+      );
+      const firstTaskWorkspace = await workspace.createTaskWorkspace({
+        parent,
+        task,
+        coordinatorWorkspace: coordinator,
+      });
+      const firstTaskSha = execSync("git rev-parse HEAD", {
+        cwd: firstTaskWorkspace.path,
+        encoding: "utf-8",
+      }).trim();
+
+      await commitFile(
+        coordinator.path,
+        "second.txt",
+        "second\n",
+        "second coordinator change",
+      );
+      const latestCoordinatorSha = execSync("git rev-parse HEAD", {
+        cwd: coordinator.path,
+        encoding: "utf-8",
+      }).trim();
+      const secondTaskWorkspace = await workspace.createTaskWorkspace({
+        parent,
+        task,
+        coordinatorWorkspace: coordinator,
+      });
+
+      expect(secondTaskWorkspace.branch).not.toBe(firstTaskWorkspace.branch);
+      expect(secondTaskWorkspace.path).not.toBe(firstTaskWorkspace.path);
+      expect(
+        execSync("git rev-parse HEAD", {
+          cwd: secondTaskWorkspace.path,
+          encoding: "utf-8",
+        }).trim(),
+      ).toBe(latestCoordinatorSha);
+      expect(latestCoordinatorSha).not.toBe(firstTaskSha);
     } finally {
       await rm(repo, { recursive: true, force: true });
     }
@@ -159,6 +226,16 @@ describe("LocalImplementationWorkspaceAdapter", () => {
           completedTasks: [],
         }),
       ).toBe(true);
+
+      await expect(
+        new LocalImplementationWorkspaceAdapter({
+          cwd: repo,
+          targetBranch: "missing-target-ref",
+        }).hasIntegratedChanges({
+          coordinatorWorkspace: coordinator,
+          completedTasks: [],
+        }),
+      ).rejects.toThrow(/git diff --quiet failed/);
 
       await workspace.pushCoordinatorBranch({
         coordinatorWorkspace: coordinator,

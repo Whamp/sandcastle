@@ -213,7 +213,7 @@ export class LocalImplementationWorkspaceAdapter implements ImplementationCoordi
       "--verify",
       "HEAD",
     ]);
-    const branch = `${this.taskBranchPrefix}/${sanitizeBranchSegment(options.task.id)}`;
+    const branch = `${this.taskBranchPrefix}/${sanitizeBranchSegment(options.task.id)}-${randomUUID().slice(0, 8)}`;
     const worktree = await createWorktree({
       cwd: this.options.cwd ?? options.coordinatorWorkspace.path,
       branchStrategy: {
@@ -282,7 +282,13 @@ export class LocalImplementationWorkspaceAdapter implements ImplementationCoordi
       "--quiet",
       `${this.targetBranch}...HEAD`,
     ]);
-    return result.exitCode !== 0;
+    if (result.exitCode === 0) return false;
+    if (result.exitCode === 1) return true;
+    throw new Error(
+      `git diff --quiet failed with exit ${result.exitCode}: ${
+        result.stderr.trim() || result.stdout.trim() || "unknown error"
+      }`,
+    );
   }
 
   async pushCoordinatorBranch(options: PushCoordinatorOptions): Promise<void> {
@@ -304,7 +310,7 @@ export interface LocalImplementationAgentRunnerAdapterOptions {
   readonly workerAgent: AgentProvider;
   readonly reviewerAgent?: AgentProvider;
   readonly sandbox: SandboxProvider;
-  readonly workspace?: LocalImplementationWorkspaceAdapter;
+  readonly workspace: LocalImplementationWorkspaceAdapter;
   readonly workerPrompt?: string;
   readonly reviewerPrompt?: string;
   readonly workerMaxIterations?: number;
@@ -374,12 +380,13 @@ export class LocalImplementationAgentRunnerAdapter implements ImplementationCoor
   }
 
   private async resolveWorktree(workspace: TaskWorkspace): Promise<Worktree> {
-    const existing = this.options.workspace?.getWorktree(workspace);
-    if (existing) return existing;
-    return createWorktree({
-      cwd: workspace.path,
-      branchStrategy: { type: "branch", branch: workspace.branch },
-    });
+    const existing = this.options.workspace.getWorktree(workspace);
+    if (!existing) {
+      throw new Error(
+        `Task workspace ${workspace.path} (${workspace.branch}) was not created by the configured LocalImplementationWorkspaceAdapter.`,
+      );
+    }
+    return existing;
   }
 }
 
