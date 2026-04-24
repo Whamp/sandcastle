@@ -12,6 +12,7 @@ import {
   type ScopedTask,
   type TaskWorkspace,
   type VerificationResult,
+  TaskClaimConflictError,
   type WorkerResult,
 } from "./ImplementationCoordination.js";
 
@@ -50,6 +51,9 @@ class FakePorts {
   coordinatorVerification = passedVerification("coordinator");
   mergeResult: MergeResult | Error = { merged: true, summary: "merged" };
   hasIntegratedChanges = true;
+  claimError?: Error;
+  pushError?: Error;
+  publishError?: Error;
 
   ports(): ImplementationCoordinationPorts {
     return {
@@ -58,12 +62,15 @@ class FakePorts {
         listScopedTasks: async () => this.scopedTasks,
         claimTask: async (task) => {
           this.events.push(`backlog:claim:${task.id}`);
+          if (this.claimError) {
+            throw this.claimError;
+          }
         },
         releaseTask: async (task, reason) => {
           this.events.push(`backlog:release:${task.id}:${reason}`);
         },
-        markTaskDone: async (task, outcome) => {
-          this.events.push(`backlog:done:${task.id}`);
+        markTaskAcceptedForIntegration: async (task, outcome) => {
+          this.events.push(`backlog:accepted-for-integration:${task.id}`);
           this.doneOutcomes.push({ task, outcome });
         },
         markTaskBlocked: async (task, outcome) => {
@@ -107,6 +114,9 @@ class FakePorts {
         },
         pushCoordinatorBranch: async () => {
           this.events.push("workspace:push-coordinator");
+          if (this.pushError) {
+            throw this.pushError;
+          }
         },
       },
       agentRunner: {
@@ -148,6 +158,9 @@ class FakePorts {
       pullRequests: {
         createOrUpdate: async (options): Promise<CoordinationPullRequest> => {
           this.events.push("pull-request:publish");
+          if (this.publishError) {
+            throw this.publishError;
+          }
           this.publishedBodies.push(options.body);
           return {
             id: "pr-14",
@@ -178,7 +191,7 @@ describe("coordinateImplementation", () => {
 
     expect(result.parent).toBe(parent);
     expect(result.scopedTasks).toEqual([]);
-    expect(result.completedTasks).toEqual([]);
+    expect(result.acceptedForIntegrationTasks).toEqual([]);
     expect(result.pullRequest).toBeUndefined();
     expect(result.noPullRequestReason).toContain(
       "no issue branch was accepted",
@@ -213,7 +226,7 @@ describe("coordinateImplementation", () => {
         },
       }),
     ).rejects.toThrow(
-      "backlog lifecycle methods claimTask, releaseTask, markTaskDone, markTaskBlocked, and markTaskNeedsAttention are required when scoped tasks exist",
+      "backlog lifecycle methods claimTask, releaseTask, markTaskAcceptedForIntegration, markTaskBlocked, and markTaskNeedsAttention are required when scoped tasks exist",
     );
 
     expect(events).toEqual([
@@ -246,15 +259,53 @@ describe("coordinateImplementation", () => {
       "agent:reviewer:task-14:task/task-14",
       "verify:task:task-14",
       "workspace:merge-task:task-14",
-      "backlog:done:task-14",
       "verify:coordinator",
       "workspace:has-integrated-changes",
       "workspace:push-coordinator",
       "pull-request:publish",
+      "backlog:accepted-for-integration:task-14",
     ]);
-    expect(result.completedTasks).toHaveLength(1);
+    expect(result.acceptedForIntegrationTasks).toHaveLength(1);
     expect(result.needsAttentionTasks).toEqual([]);
     expect(result.mergeRecommendation).toBe("recommend-merge");
+  });
+
+  it("does not mark a task accepted for integration when pushing the coordinator branch fails", async () => {
+    const fake = new FakePorts();
+    fake.pushError = new Error("push failed");
+
+    await expect(fake.run()).rejects.toThrow("push failed");
+
+    expect(fake.events).toContain("workspace:push-coordinator");
+    expect(fake.events).not.toContain(
+      "backlog:accepted-for-integration:task-14",
+    );
+  });
+
+  it("does not mark a task accepted for integration when publishing the coordination PR fails", async () => {
+    const fake = new FakePorts();
+    fake.publishError = new Error("PR failed");
+
+    await expect(fake.run()).rejects.toThrow("PR failed");
+
+    expect(fake.events).toContain("pull-request:publish");
+    expect(fake.events).not.toContain(
+      "backlog:accepted-for-integration:task-14",
+    );
+  });
+
+  it("skips a task when the refreshed claim has already been taken", async () => {
+    const fake = new FakePorts();
+    fake.claimError = new TaskClaimConflictError("already claimed");
+
+    const result = await fake.run();
+
+    expect(result.acceptedForIntegrationTasks).toEqual([]);
+    expect(result.needsAttentionTasks).toEqual([]);
+    expect(fake.events).toEqual([
+      "workspace:create-coordinator",
+      "backlog:claim:task-14",
+    ]);
   });
 
   it("records P2/P3 reviewer findings in the result and PR body without blocking acceptance", async () => {
@@ -274,7 +325,7 @@ describe("coordinateImplementation", () => {
 
     const result = await fake.run();
 
-    expect(result.completedTasks[0]?.reviewFindings).toEqual([
+    expect(result.acceptedForIntegrationTasks[0]?.reviewFindings).toEqual([
       {
         severity: "P2",
         title: "Improve edge-case test",
@@ -289,6 +340,34 @@ describe("coordinateImplementation", () => {
     expect(result.mergeRecommendation).toBe("recommend-merge");
   });
 
+  it("does not leak P2/P3 findings from tasks that fail before acceptance", async () => {
+    const laterTask: ScopedTask = { id: "task-16", title: "Later task" };
+    const fake = new FakePorts();
+    fake.scopedTasks = [readyTask, laterTask];
+    fake.reviewerResults = [
+      { findings: [{ severity: "P2", title: "Failed task note" }] },
+      { findings: [{ severity: "P2", title: "Accepted task note" }] },
+    ];
+    fake.taskVerifications = [
+      { target: "task", passed: false, summary: "first task failed" },
+      passedVerification("task"),
+    ];
+
+    const result = await fake.run();
+
+    expect(
+      result.acceptedForIntegrationTasks.map((task) => task.task.id),
+    ).toEqual(["task-16"]);
+    expect(result.needsAttentionTasks.map((task) => task.task.id)).toEqual([
+      "task-14",
+    ]);
+    expect(result.nonBlockingReviewFindings).toEqual([
+      { severity: "P2", title: "Accepted task note" },
+    ]);
+    expect(fake.publishedBodies[0]).not.toContain("Failed task note");
+    expect(fake.publishedBodies[0]).toContain("Accepted task note");
+  });
+
   it("marks a task needs-attention with unresolved findings when max review rounds are exhausted", async () => {
     const fake = new FakePorts();
     fake.reviewerResults = [
@@ -298,7 +377,7 @@ describe("coordinateImplementation", () => {
 
     const result = await fake.run();
 
-    expect(result.completedTasks).toEqual([]);
+    expect(result.acceptedForIntegrationTasks).toEqual([]);
     expect(result.needsAttentionTasks).toHaveLength(1);
     expect(result.needsAttentionTasks[0]).toMatchObject({
       task: readyTask,
@@ -327,7 +406,7 @@ describe("coordinateImplementation", () => {
       "workspace:create-coordinator",
       "backlog:blocked:task-15",
     ]);
-    expect(result.completedTasks).toEqual([]);
+    expect(result.acceptedForIntegrationTasks).toEqual([]);
     expect(result.pullRequest).toBeUndefined();
   });
 
@@ -353,7 +432,7 @@ describe("coordinateImplementation", () => {
 
     const result = await fake.run();
 
-    expect(result.completedTasks).toEqual([]);
+    expect(result.acceptedForIntegrationTasks).toEqual([]);
     expect(result.needsAttentionTasks[0]).toMatchObject({
       reason: "reviewer-output-unparseable",
       branch: "task/task-14",
@@ -369,7 +448,7 @@ describe("coordinateImplementation", () => {
 
     const result = await fake.run();
 
-    expect(result.completedTasks).toEqual([]);
+    expect(result.acceptedForIntegrationTasks).toEqual([]);
     expect(result.needsAttentionTasks[0]).toMatchObject({
       task: readyTask,
       reason: "reviewer-output-unparseable",
@@ -428,7 +507,7 @@ describe("coordinateImplementation", () => {
 
     const result = await fake.run();
 
-    expect(result.completedTasks).toEqual([]);
+    expect(result.acceptedForIntegrationTasks).toEqual([]);
     expect(result.needsAttentionTasks[0]).toMatchObject({
       reason,
       summary,
@@ -436,7 +515,9 @@ describe("coordinateImplementation", () => {
       workspace: "/worktrees/task-14",
     });
     expect(result.pullRequest).toBeUndefined();
-    expect(fake.events).not.toContain("backlog:done:task-14");
+    expect(fake.events).not.toContain(
+      "backlog:accepted-for-integration:task-14",
+    );
   });
 
   it("marks task verifier rejection needs-attention and releases the claim", async () => {
@@ -445,7 +526,7 @@ describe("coordinateImplementation", () => {
 
     const result = await fake.run();
 
-    expect(result.completedTasks).toEqual([]);
+    expect(result.acceptedForIntegrationTasks).toEqual([]);
     expect(result.needsAttentionTasks[0]).toMatchObject({
       task: readyTask,
       reason: "task-verification-failed",
@@ -472,7 +553,9 @@ describe("coordinateImplementation", () => {
       "backlog:needs-attention:task-14",
       "backlog:release:task-14:task-verification-failed",
     ]);
-    expect(fake.events).not.toContain("backlog:done:task-14");
+    expect(fake.events).not.toContain(
+      "backlog:accepted-for-integration:task-14",
+    );
     expect(fake.events).not.toContain("workspace:merge-task:task-14");
     expect(fake.events).not.toContain("pull-request:publish");
     expect(result.pullRequest).toBeUndefined();
@@ -485,7 +568,7 @@ describe("coordinateImplementation", () => {
 
     const result = await fake.run();
 
-    expect(result.completedTasks).toEqual([]);
+    expect(result.acceptedForIntegrationTasks).toEqual([]);
     expect(result.needsAttentionTasks[0]).toMatchObject({
       task: readyTask,
       reason: "merge-failed",
@@ -513,7 +596,9 @@ describe("coordinateImplementation", () => {
       "backlog:needs-attention:task-14",
       "backlog:release:task-14:merge-failed",
     ]);
-    expect(fake.events).not.toContain("backlog:done:task-14");
+    expect(fake.events).not.toContain(
+      "backlog:accepted-for-integration:task-14",
+    );
     expect(fake.events).not.toContain("verify:coordinator");
     expect(fake.events).not.toContain("pull-request:publish");
     expect(result.pullRequest).toBeUndefined();
@@ -533,9 +618,9 @@ describe("coordinateImplementation", () => {
     const result = await fake.run();
 
     expect(result.needsAttentionTasks).toHaveLength(1);
-    expect(result.completedTasks.map((task) => task.task.id)).toEqual([
-      "task-16",
-    ]);
+    expect(
+      result.acceptedForIntegrationTasks.map((task) => task.task.id),
+    ).toEqual(["task-16"]);
     expect(result.pullRequest?.url).toBe("https://example.test/pr/14");
     expect(result.mergeRecommendation).toBe("do-not-recommend-merge-yet");
     expect(fake.publishedBodies[0]).toContain("**Do not recommend merge yet**");
@@ -547,7 +632,7 @@ describe("coordinateImplementation", () => {
 
     const result = await fake.run();
 
-    expect(result.completedTasks).toHaveLength(1);
+    expect(result.acceptedForIntegrationTasks).toHaveLength(1);
     expect(result.pullRequest).toBeUndefined();
     expect(result.noPullRequestReason).toContain("no integrated changes");
     expect(result.mergeRecommendation).toBe("do-not-recommend-merge-yet");

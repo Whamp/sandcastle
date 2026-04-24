@@ -48,7 +48,7 @@ const successfulPorts = (
     listScopedTasks: async () => [task],
     claimTask: async () => {},
     releaseTask: async () => {},
-    markTaskDone: async () => {},
+    markTaskAcceptedForIntegration: async () => {},
     markTaskBlocked: async () => {},
     markTaskNeedsAttention: async () => {},
   },
@@ -133,7 +133,7 @@ describe("public coordinateImplementation", () => {
       "load-parent:github-issue:18",
     ]);
     expect(result.pullRequest?.url).toBe("https://example.test/pr/18");
-    expect(result.completedTasks).toHaveLength(1);
+    expect(result.acceptedForIntegrationTasks).toHaveLength(1);
     expect(result.mergeRecommendation).toBe("recommend-merge");
   });
 
@@ -238,7 +238,8 @@ describe("public coordinateImplementation", () => {
       },
     });
 
-    const taskCommand = result.completedTasks[0]?.verification?.commands?.[0];
+    const taskCommand =
+      result.acceptedForIntegrationTasks[0]?.verification?.commands?.[0];
     const coordinatorCommand = result.coordinatorVerification?.commands?.[0];
     expect(taskCommand?.cwd).toBe(taskWorkspacePath);
     expect(taskCommand?.stdout.trim()).toBe(taskWorkspacePath);

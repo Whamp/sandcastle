@@ -50,7 +50,7 @@ export interface VerificationResult {
   readonly commands?: readonly VerificationCommandResult[];
 }
 
-export interface IntegratedTask {
+export interface AcceptedForIntegrationTask {
   readonly task: ScopedTask;
   readonly branch: string;
   readonly workspace?: string;
@@ -132,7 +132,12 @@ export type MergeRecommendation =
   | "do-not-recommend-merge-yet";
 
 export interface DoneOutcome {
-  readonly acceptance: "accepted";
+  readonly branch: string;
+  readonly verification: VerificationResult;
+  readonly reviewFindings?: readonly ReviewFinding[];
+}
+
+export interface AcceptedForIntegrationOutcome {
   readonly branch: string;
   readonly verification: VerificationResult;
   readonly reviewFindings?: readonly ReviewFinding[];
@@ -157,6 +162,10 @@ export interface ImplementationCoordinationBacklogPort {
   claimTask?(task: ScopedTask): Promise<void>;
   releaseTask?(task: ScopedTask, reason: string): Promise<void>;
   markTaskDone?(task: ScopedTask, outcome: DoneOutcome): Promise<void>;
+  markTaskAcceptedForIntegration?(
+    task: ScopedTask,
+    outcome: AcceptedForIntegrationOutcome,
+  ): Promise<void>;
   markTaskBlocked?(task: ScopedTask, outcome: BlockedOutcome): Promise<void>;
   markTaskNeedsAttention?(
     task: ScopedTask,
@@ -182,7 +191,7 @@ export interface MergeTaskOptions {
 
 export interface HasIntegratedChangesOptions {
   readonly coordinatorWorkspace: CoordinatorWorkspace;
-  readonly completedTasks: readonly IntegratedTask[];
+  readonly acceptedForIntegrationTasks: readonly AcceptedForIntegrationTask[];
 }
 
 export interface PushCoordinatorOptions {
@@ -234,7 +243,7 @@ export interface VerificationPort {
 
 export interface CreateOrUpdateCoordinationPullRequestOptions {
   readonly parent: ParentEffort;
-  readonly completedTasks: readonly IntegratedTask[];
+  readonly acceptedForIntegrationTasks: readonly AcceptedForIntegrationTask[];
   readonly blockedTasks: readonly BlockedTaskResult[];
   readonly needsAttentionTasks: readonly NeedsAttentionTaskResult[];
   readonly nonBlockingReviewFindings: readonly ReviewFinding[];
@@ -355,7 +364,7 @@ export interface ImplementationCoordinationAdapterFactories {
 export interface ImplementationCoordinationResult {
   readonly parent: ParentEffort;
   readonly scopedTasks: readonly ScopedTask[];
-  readonly completedTasks: readonly IntegratedTask[];
+  readonly acceptedForIntegrationTasks: readonly AcceptedForIntegrationTask[];
   readonly blockedTasks: readonly BlockedTaskResult[];
   readonly needsAttentionTasks: readonly NeedsAttentionTaskResult[];
   readonly nonBlockingReviewFindings: readonly ReviewFinding[];
@@ -417,7 +426,10 @@ const requirePort = <TPort>(
 type RequiredLifecycleBacklogPort = ImplementationCoordinationBacklogPort & {
   claimTask(task: ScopedTask): Promise<void>;
   releaseTask(task: ScopedTask, reason: string): Promise<void>;
-  markTaskDone(task: ScopedTask, outcome: DoneOutcome): Promise<void>;
+  markTaskAcceptedForIntegration(
+    task: ScopedTask,
+    outcome: AcceptedForIntegrationOutcome,
+  ): Promise<void>;
   markTaskBlocked(task: ScopedTask, outcome: BlockedOutcome): Promise<void>;
   markTaskNeedsAttention(
     task: ScopedTask,
@@ -431,12 +443,12 @@ const requireBacklogLifecycle = (
   if (
     backlog.claimTask === undefined ||
     backlog.releaseTask === undefined ||
-    backlog.markTaskDone === undefined ||
+    backlog.markTaskAcceptedForIntegration === undefined ||
     backlog.markTaskBlocked === undefined ||
     backlog.markTaskNeedsAttention === undefined
   ) {
     throw new Error(
-      "backlog lifecycle methods claimTask, releaseTask, markTaskDone, markTaskBlocked, and markTaskNeedsAttention are required when scoped tasks exist.",
+      "backlog lifecycle methods claimTask, releaseTask, markTaskAcceptedForIntegration, markTaskBlocked, and markTaskNeedsAttention are required when scoped tasks exist.",
     );
   }
 
@@ -463,6 +475,13 @@ const buildNeedsAttentionOutcome = (options: {
   verification: options.verification,
 });
 
+export class TaskClaimConflictError extends Error {
+  constructor(message = "Task already has an active claim.") {
+    super(message);
+    this.name = "TaskClaimConflictError";
+  }
+}
+
 export const runImplementationCoordination = async (
   options: ImplementationCoordinationOptions,
 ): Promise<ImplementationCoordinationResult> => {
@@ -473,7 +492,7 @@ export const runImplementationCoordination = async (
 
   const parent = await options.ports.backlog.loadParent(options.parent);
   const scopedTasks = await options.ports.backlog.listScopedTasks(parent);
-  const completedTasks: IntegratedTask[] = [];
+  const acceptedForIntegrationTasks: AcceptedForIntegrationTask[] = [];
   const blockedTasks: BlockedTaskResult[] = [];
   const needsAttentionTasks: NeedsAttentionTaskResult[] = [];
   const nonBlockingReviewFindings: ReviewFinding[] = [];
@@ -481,7 +500,7 @@ export const runImplementationCoordination = async (
   const baseResult = {
     parent,
     scopedTasks,
-    completedTasks,
+    acceptedForIntegrationTasks,
     blockedTasks,
     needsAttentionTasks,
     nonBlockingReviewFindings,
@@ -511,7 +530,14 @@ export const runImplementationCoordination = async (
       continue;
     }
 
-    await backlog.claimTask(task);
+    try {
+      await backlog.claimTask(task);
+    } catch (error) {
+      if (error instanceof TaskClaimConflictError) {
+        continue;
+      }
+      throw error;
+    }
     let taskWorkspace: TaskWorkspace | undefined;
 
     const markNeedsAttention = async (
@@ -640,8 +666,6 @@ export const runImplementationCoordination = async (
       continue;
     }
 
-    nonBlockingReviewFindings.push(...acceptedReviewFindings);
-
     let taskVerification: VerificationResult;
     try {
       taskVerification = await verifier.verify({
@@ -705,13 +729,7 @@ export const runImplementationCoordination = async (
       continue;
     }
 
-    await backlog.markTaskDone(task, {
-      acceptance: "accepted",
-      branch: taskWorkspace.branch,
-      verification: taskVerification,
-      reviewFindings: acceptedReviewFindings,
-    });
-    completedTasks.push({
+    acceptedForIntegrationTasks.push({
       task,
       branch: taskWorkspace.branch,
       workspace: taskWorkspace.path,
@@ -720,7 +738,7 @@ export const runImplementationCoordination = async (
     });
   }
 
-  if (completedTasks.length === 0) {
+  if (acceptedForIntegrationTasks.length === 0) {
     return {
       ...baseResult,
       coordinatorWorkspace,
@@ -736,7 +754,7 @@ export const runImplementationCoordination = async (
   });
   const hasIntegratedChanges = await workspace.hasIntegratedChanges({
     coordinatorWorkspace,
-    completedTasks,
+    acceptedForIntegrationTasks,
   });
 
   if (!hasIntegratedChanges) {
@@ -758,9 +776,12 @@ export const runImplementationCoordination = async (
       : "do-not-recommend-merge-yet";
 
   await workspace.pushCoordinatorBranch({ coordinatorWorkspace });
+  nonBlockingReviewFindings.push(
+    ...acceptedForIntegrationTasks.flatMap((task) => task.reviewFindings ?? []),
+  );
   const body = renderImplementationCoordinationReport({
     parent,
-    completedTasks,
+    acceptedForIntegrationTasks,
     blockedTasks,
     needsAttentionTasks,
     nonBlockingReviewFindings,
@@ -770,7 +791,7 @@ export const runImplementationCoordination = async (
   });
   const pullRequest = await options.ports.pullRequests.createOrUpdate({
     parent,
-    completedTasks,
+    acceptedForIntegrationTasks,
     blockedTasks,
     needsAttentionTasks,
     nonBlockingReviewFindings,
@@ -779,6 +800,20 @@ export const runImplementationCoordination = async (
     mergeRecommendation,
     body,
   });
+
+  for (const acceptedForIntegrationTask of acceptedForIntegrationTasks) {
+    await backlog.markTaskAcceptedForIntegration(
+      acceptedForIntegrationTask.task,
+      {
+        branch: acceptedForIntegrationTask.branch,
+        verification: acceptedForIntegrationTask.verification ?? {
+          passed: true,
+          summary: "Task accepted for integration.",
+        },
+        reviewFindings: acceptedForIntegrationTask.reviewFindings,
+      },
+    );
+  }
 
   return {
     ...baseResult,

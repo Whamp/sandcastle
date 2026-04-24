@@ -6,6 +6,7 @@ import {
   formatTaskCoordinationComment,
   parseTaskCoordinationComment,
 } from "./GitHubIssueBacklog.js";
+import { TaskClaimConflictError } from "./ImplementationCoordination.js";
 
 interface FakeIssue {
   readonly number: number;
@@ -132,6 +133,15 @@ describe("GitHubImplementationBacklogAdapter", () => {
       recordedAt: "2026-04-19T00:00:00.000Z",
       branch: "task/done",
     });
+    const acceptedForIntegration = formatTaskCoordinationComment({
+      kind: "sandcastle-task-coordination",
+      version: 1,
+      event: "accepted-for-integration",
+      runId: "run-accepted",
+      executionMode: "host",
+      recordedAt: "2026-04-19T00:00:00.000Z",
+      branch: "task/accepted",
+    });
     const issues: FakeIssue[] = [
       makeIssue({
         number: 100,
@@ -155,6 +165,11 @@ describe("GitHubImplementationBacklogAdapter", () => {
         number: 105,
         title: "Needs attention",
         labels: [READY_FOR_AGENT_LABEL, NEEDS_ATTENTION_LABEL],
+      }),
+      makeIssue({
+        number: 111,
+        title: "Accepted scoped task",
+        comments: [{ body: acceptedForIntegration }],
       }),
       makeIssue({
         number: 106,
@@ -231,7 +246,38 @@ describe("GitHubImplementationBacklogAdapter", () => {
     ]);
   });
 
-  it("records claim, reclaim, release, done, and needs-attention lifecycle comments through fake gh", async () => {
+  it("rejects a final claim attempt when the refreshed issue already has an active claim", async () => {
+    const activeClaim = formatTaskCoordinationComment({
+      kind: "sandcastle-task-coordination",
+      version: 1,
+      event: "claim",
+      runId: "run-active",
+      executionMode: "host",
+      recordedAt: "2026-04-19T00:00:00.000Z",
+      leaseExpiresAt: "2026-04-19T04:00:00.000Z",
+    });
+    const issues: FakeIssue[] = [
+      makeIssue({
+        number: 101,
+        title: "Actively claimed task",
+        comments: [{ body: activeClaim }],
+      }),
+    ];
+    const { gh } = createFakeGh(issues);
+    const adapter = new GitHubImplementationBacklogAdapter({
+      gh,
+      now: () => new Date("2026-04-19T00:30:00.000Z"),
+      runId: () => "run-current",
+    });
+
+    await expect(
+      adapter.claimTask({ id: "#101", title: "Actively claimed task" }),
+    ).rejects.toBeInstanceOf(TaskClaimConflictError);
+
+    expect(issues[0]!.comments).toHaveLength(1);
+  });
+
+  it("records claim, reclaim, release, accepted-for-integration, done, and needs-attention lifecycle comments through fake gh", async () => {
     const staleClaim = formatTaskCoordinationComment({
       kind: "sandcastle-task-coordination",
       version: 1,
@@ -260,10 +306,13 @@ describe("GitHubImplementationBacklogAdapter", () => {
     await adapter.claimTask(task);
     await adapter.reclaimTask(task);
     await adapter.releaseTask(task, "worker stopped cleanly");
-    await adapter.markTaskDone(task, {
-      acceptance: "accepted",
+    await adapter.markTaskAcceptedForIntegration(task, {
       branch: "task/101",
       verification: { passed: true, summary: "typecheck passed" },
+    });
+    await adapter.markTaskDone(task, {
+      branch: "task/101",
+      verification: { passed: true, summary: "landed on target" },
     });
     await adapter.markTaskNeedsAttention(task, {
       reason: "worker-failed",
@@ -280,6 +329,7 @@ describe("GitHubImplementationBacklogAdapter", () => {
       "claim",
       "reclaim",
       "release",
+      "accepted-for-integration",
       "done",
       "needs-attention",
     ]);

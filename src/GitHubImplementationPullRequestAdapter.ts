@@ -90,7 +90,7 @@ export class GitHubImplementationPullRequestAdapter implements ImplementationCoo
   async createOrUpdate(
     options: CreateOrUpdateCoordinationPullRequestOptions,
   ): Promise<CoordinationPullRequest> {
-    if (options.completedTasks.length === 0) {
+    if (options.acceptedForIntegrationTasks.length === 0) {
       throw new Error(NO_ACCEPTED_ISSUE_BRANCH_NO_PR_REASON);
     }
 

@@ -10,7 +10,7 @@ import type {
 
 const baseOptions: CreateOrUpdateCoordinationPullRequestOptions = {
   parent: { id: "#11", title: "Parent spec" },
-  completedTasks: [
+  acceptedForIntegrationTasks: [
     {
       task: { id: "#17", title: "Add PR publisher" },
       branch: "task/17-github-pr-publisher",
@@ -100,7 +100,7 @@ describe("renderImplementationCoordinationReport", () => {
 
     expect(body).toContain("## Parent issue/spec");
     expect(body).toContain("Parent spec (#11)");
-    expect(body).toContain("## Completed tasks");
+    expect(body).toContain("## Accepted for integration tasks");
     expect(body).toContain("Add PR publisher (#17)");
     expect(body).toContain("## Blocked tasks");
     expect(body).toContain("Public default wiring (#18) blocked by #17");
@@ -113,6 +113,11 @@ describe("renderImplementationCoordinationReport", () => {
     expect(body).toContain("P3: Nitpick");
     expect(body).toContain("## Merge recommendation");
     expect(body).toContain("**Do not recommend merge yet**");
+    expect(body).not.toContain("/worktrees/task-17");
+    expect(body).not.toContain("/worktrees/task-19");
+    expect(body).not.toContain("/worktrees/coordinator");
+    expect(body).not.toContain("/repo");
+    expect(body).toContain("`npm run typecheck`: exit 0");
   });
 });
 
@@ -200,7 +205,7 @@ describe("GitHubImplementationPullRequestAdapter", () => {
     await expect(
       adapter.createOrUpdate({
         ...baseOptions,
-        completedTasks: [],
+        acceptedForIntegrationTasks: [],
       }),
     ).rejects.toThrow("no issue branch was accepted");
     expect(commands).toEqual([]);

@@ -250,7 +250,7 @@ describe("LocalImplementationWorkspaceAdapter", () => {
       expect(
         await workspace.hasIntegratedChanges({
           coordinatorWorkspace: coordinator,
-          completedTasks: [],
+          acceptedForIntegrationTasks: [],
         }),
       ).toBe(true);
 
@@ -260,7 +260,7 @@ describe("LocalImplementationWorkspaceAdapter", () => {
           targetBranch: "missing-target-ref",
         }).hasIntegratedChanges({
           coordinatorWorkspace: coordinator,
-          completedTasks: [],
+          acceptedForIntegrationTasks: [],
         }),
       ).rejects.toThrow(/git diff --quiet failed/);
 
@@ -447,6 +447,36 @@ describe("LocalImplementationAgentRunnerAdapter", () => {
 });
 
 describe("LocalImplementationVerifierAdapter", () => {
+  it("treats signal-terminated commands as failed verification", async () => {
+    const repo = await setupRepo();
+    try {
+      const workspace = new LocalImplementationWorkspaceAdapter({ cwd: repo });
+      const coordinator = await workspace.createCoordinatorWorkspace({
+        parent,
+      });
+      const verifier = new LocalImplementationVerifierAdapter({
+        commands: ["kill -TERM $$"],
+      });
+
+      const result = await verifier.verify({
+        target: "coordinator",
+        parent,
+        coordinatorWorkspace: coordinator,
+      });
+
+      expect(result.passed).toBe(false);
+      expect(result.commands![0]).toMatchObject({
+        command: "kill -TERM $$",
+        exitCode: 128,
+      });
+      expect(result.commands![0]?.stderr).toContain(
+        "Command terminated by signal SIGTERM.",
+      );
+    } finally {
+      await rm(repo, { recursive: true, force: true });
+    }
+  });
+
   it("runs configured commands and returns structured command results without throwing on non-zero exits", async () => {
     const repo = await setupRepo();
     try {

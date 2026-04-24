@@ -465,13 +465,17 @@ const runCommand = (
     child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
     child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
     child.on("error", reject);
-    child.on("close", (code) =>
+    child.on("close", (code, signal) => {
+      const stderrText = Buffer.concat(stderr).toString();
       resolve({
         command,
         cwd,
-        exitCode: code ?? 0,
+        exitCode: code ?? 128,
         stdout: Buffer.concat(stdout).toString(),
-        stderr: Buffer.concat(stderr).toString(),
-      }),
-    );
+        stderr:
+          code === null && signal
+            ? `${stderrText}${stderrText ? "\n" : ""}Command terminated by signal ${signal}.`
+            : stderrText,
+      });
+    });
   });

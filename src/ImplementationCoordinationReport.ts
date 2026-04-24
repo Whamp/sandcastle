@@ -32,9 +32,7 @@ const renderVerification = (verification?: VerificationResult): string => {
   ];
 
   for (const command of verification.commands ?? []) {
-    lines.push(
-      `  - \`${command.command}\` in ${command.cwd}: exit ${command.exitCode}`,
-    );
+    lines.push(`  - \`${command.command}\`: exit ${command.exitCode}`);
   }
 
   return lines.join("\n");
@@ -43,16 +41,15 @@ const renderVerification = (verification?: VerificationResult): string => {
 export const renderImplementationCoordinationReport = (
   options: Omit<CreateOrUpdateCoordinationPullRequestOptions, "body">,
 ): string => {
-  const completedTasks = options.completedTasks.length
-    ? options.completedTasks
-        .map((completedTask) => {
-          const taskName = completedTask.task.title ?? completedTask.task.id;
-          const verificationSummary = completedTask.verification?.summary;
-          return `- ${taskName} (${completedTask.task.id}) on ${completedTask.branch}${
-            completedTask.workspace
-              ? `; worktree ${completedTask.workspace}`
-              : ""
-          }${verificationSummary ? ` — ${verificationSummary}` : ""}`;
+  const acceptedForIntegrationTasks = options.acceptedForIntegrationTasks.length
+    ? options.acceptedForIntegrationTasks
+        .map((acceptedForIntegrationTask) => {
+          const taskName =
+            acceptedForIntegrationTask.task.title ??
+            acceptedForIntegrationTask.task.id;
+          const verificationSummary =
+            acceptedForIntegrationTask.verification?.summary;
+          return `- ${taskName} (${acceptedForIntegrationTask.task.id}) on ${acceptedForIntegrationTask.branch}${verificationSummary ? ` — ${verificationSummary}` : ""}`;
         })
         .join("\n")
     : "- None";
@@ -68,7 +65,7 @@ export const renderImplementationCoordinationReport = (
     ? options.needsAttentionTasks
         .map(
           (task) =>
-            `- ${task.task.title ?? task.task.id} (${task.task.id}): ${task.reason}${task.summary ? ` — ${task.summary}` : ""}${task.branch ? `; branch ${task.branch}` : ""}${task.workspace ? `; worktree ${task.workspace}` : ""}`,
+            `- ${task.task.title ?? task.task.id} (${task.task.id}): ${task.reason}${task.summary ? ` — ${task.summary}` : ""}${task.branch ? `; branch ${task.branch}` : ""}`,
         )
         .join("\n")
     : "- None";
@@ -83,8 +80,8 @@ export const renderImplementationCoordinationReport = (
     "## Parent issue/spec",
     `- ${renderParent(options.parent)}`,
     "",
-    "## Completed tasks",
-    completedTasks,
+    "## Accepted for integration tasks",
+    acceptedForIntegrationTasks,
     "",
     "## Blocked tasks",
     blockedTasks,

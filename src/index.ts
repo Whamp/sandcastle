@@ -63,6 +63,7 @@ export {
   coordinateImplementation,
   runImplementationCoordination,
   NO_ACCEPTED_ISSUE_BRANCH_NO_PR_REASON,
+  TaskClaimConflictError,
 } from "./ImplementationCoordination.js";
 export { renderImplementationCoordinationReport } from "./ImplementationCoordinationReport.js";
 export { GitHubImplementationPullRequestAdapter } from "./GitHubImplementationPullRequestAdapter.js";
@@ -86,6 +87,7 @@ export type {
   CreateOrUpdateCoordinationPullRequestOptions,
   CreateTaskWorkspaceOptions,
   DoneOutcome,
+  AcceptedForIntegrationOutcome,
   HasIntegratedChangesOptions,
   ImplementationCoordinationAgentRunnerPort,
   ImplementationCoordinationBacklogPort,
@@ -105,7 +107,7 @@ export type {
   ImplementationCoordinationPullRequestPort,
   ImplementationCoordinationResult,
   ImplementationCoordinationWorkspacePort,
-  IntegratedTask,
+  AcceptedForIntegrationTask,
   MergeRecommendation,
   MergeResult,
   MergeTaskOptions,

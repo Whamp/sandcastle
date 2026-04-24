@@ -1,6 +1,8 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { TaskClaimConflictError } from "./ImplementationCoordination.js";
 import type {
+  AcceptedForIntegrationOutcome,
   BlockedOutcome,
   DoneOutcome,
   ImplementationCoordinationBacklogPort,
@@ -68,6 +70,7 @@ export type TaskCoordinationCommentEvent =
   | "reclaim"
   | "release"
   | "needs-attention"
+  | "accepted-for-integration"
   | "done";
 
 export interface TaskCoordinationComment {
@@ -341,7 +344,9 @@ export const formatTaskCoordinationComment = (
           ? "Sandcastle Task Coordination release"
           : comment.event === "needs-attention"
             ? "Sandcastle Task Coordination needs attention"
-            : "Sandcastle Task Coordination done";
+            : comment.event === "accepted-for-integration"
+              ? "Sandcastle Task Coordination accepted for integration"
+              : "Sandcastle Task Coordination done";
 
   const executionLabel =
     comment.executionMode === "host" ? "host execution" : "sandboxed execution";
@@ -354,7 +359,9 @@ export const formatTaskCoordinationComment = (
           ? "This GitHub Issue Task claim has been released."
           : comment.event === "needs-attention"
             ? `This GitHub-backed Task has moved from ${READY_FOR_AGENT_LABEL} to ${NEEDS_ATTENTION_LABEL} rather than dependency-blocked treatment because ${executionLabel} failed in a way that requires intervention beyond ordinary retry.${comment.reason ? ` Reason: ${comment.reason}` : ""}`
-            : "This GitHub Issue Task has landed through Task Coordination and is ready for closure.";
+            : comment.event === "accepted-for-integration"
+              ? `This GitHub Issue Task is accepted for integration in a pushed coordinator branch and published coordination PR. It is not done until it lands on the target branch.${comment.reason ? ` Reason: ${comment.reason}` : ""}`
+              : "This GitHub Issue Task has landed through Task Coordination and is ready for closure.";
 
   return `${headline}\n\n${description}\n\n\`\`\`json\n${JSON.stringify(comment, null, 2)}\n\`\`\``;
 };
@@ -380,6 +387,7 @@ export const parseTaskCoordinationComment = (
         parsed.event !== "reclaim" &&
         parsed.event !== "release" &&
         parsed.event !== "needs-attention" &&
+        parsed.event !== "accepted-for-integration" &&
         parsed.event !== "done") ||
       (parsed.executionMode !== "host" &&
         parsed.executionMode !== "sandboxed") ||
@@ -417,6 +425,11 @@ const hasRecordedTaskCoordinationEvent = (
 export const hasRecordedTaskCoordinationDone = (
   comments: readonly GitHubIssueComment[],
 ): boolean => hasRecordedTaskCoordinationEvent(comments, "done");
+
+export const hasRecordedTaskCoordinationAcceptedForIntegration = (
+  comments: readonly GitHubIssueComment[],
+): boolean =>
+  hasRecordedTaskCoordinationEvent(comments, "accepted-for-integration");
 
 export const hasRecordedTaskCoordinationNeedsAttention = (
   comments: readonly GitHubIssueComment[],
@@ -483,6 +496,7 @@ export const getTaskCoordinationClaimState = (
       parsed.event === "reclaim" ||
       parsed.event === "release" ||
       parsed.event === "needs-attention" ||
+      parsed.event === "accepted-for-integration" ||
       parsed.event === "done"
     ) {
       activeClaim = undefined;
@@ -592,7 +606,10 @@ export class GitHubIssueBacklog {
         continue;
       }
 
-      if (hasRecordedTaskCoordinationDone(issue.comments)) {
+      if (
+        hasRecordedTaskCoordinationDone(issue.comments) ||
+        hasRecordedTaskCoordinationAcceptedForIntegration(issue.comments)
+      ) {
         continue;
       }
 
@@ -875,6 +892,7 @@ export class GitHubImplementationBacklogAdapter implements ImplementationCoordin
 
       if (
         hasRecordedTaskCoordinationDone(issue.comments) ||
+        hasRecordedTaskCoordinationAcceptedForIntegration(issue.comments) ||
         hasIssueLabel(issue, NEEDS_ATTENTION_LABEL)
       ) {
         continue;
@@ -914,6 +932,12 @@ export class GitHubImplementationBacklogAdapter implements ImplementationCoordin
       defaultLeaseMs: this.#claimLeaseMs,
     });
     const runId = this.#runId();
+
+    if (claimState.status === "claimed") {
+      throw new TaskClaimConflictError(
+        `Scoped task ${task.id} already has an active claim.`,
+      );
+    }
 
     if (claimState.status === "stale") {
       await this.#backlog.reclaimTask(
@@ -967,6 +991,19 @@ export class GitHubImplementationBacklogAdapter implements ImplementationCoordin
     // dependency state. The implementation coordination core calls this hook to
     // record blocked tasks, but the GitHub adapter must not duplicate that state
     // with a separate needs-attention or claim-lifecycle event.
+  }
+
+  async markTaskAcceptedForIntegration(
+    task: ScopedTask,
+    outcome: AcceptedForIntegrationOutcome,
+  ): Promise<void> {
+    await this.#backlog.markTaskDone(
+      parseScopedTaskIssueNumber(task),
+      this.#createComment("accepted-for-integration", {
+        branch: outcome.branch,
+        reason: outcome.verification.summary,
+      }),
+    );
   }
 
   async markTaskDone(task: ScopedTask, outcome: DoneOutcome): Promise<void> {

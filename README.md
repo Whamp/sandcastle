@@ -165,7 +165,7 @@ const result = await coordinateImplementation({
 });
 ```
 
-`coordinateImplementation()` returns completed Tasks, blocked Tasks, needs-attention Tasks, P2/P3 reviewer findings, verification results, coordinator branch/worktree details, and either `pullRequest.url` or `noPullRequestReason`. Sandcastle never merges the PR automatically; a human must review and merge it outside this API. Sandcastle also avoids empty PRs: when no task branch was accepted or the coordinator branch has no diff from the base branch, the result explains why no PR was created. Use `runImplementationCoordination()` when you want the same core state machine with fake or custom backlog, workspace, agent-runner, verifier, and PR ports.
+`coordinateImplementation()` returns accepted-for-integration Tasks, blocked Tasks, needs-attention Tasks, P2/P3 reviewer findings, verification results, coordinator branch/worktree details, and either `pullRequest.url` or `noPullRequestReason`. Sandcastle never merges the PR automatically; a human must review and merge it outside this API. Sandcastle also avoids empty PRs: when no task branch was accepted or the coordinator branch has no diff from the base branch, the result explains why no PR was created. Use `runImplementationCoordination()` when you want the same core state machine with fake or custom backlog, workspace, agent-runner, verifier, and PR ports.
 
 ```typescript
 import { run, claudeCode } from "@ai-hero/sandcastle";
