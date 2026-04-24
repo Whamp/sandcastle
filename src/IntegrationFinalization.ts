@@ -82,6 +82,7 @@ export type IntegrationFinalizationReason =
   | "coordination-pr-closed-unmerged"
   | "coordination-manifest-missing"
   | "coordination-manifest-invalid"
+  | "coordination-pr-target-branch-mismatch"
   | "target-branch-landing-proof-failed"
   | "accepted-task-state-inconsistent"
   | "finalized";
@@ -276,6 +277,18 @@ export const runIntegrationFinalization = async (
       reportFacts,
       "coordination-manifest-missing",
       "Integration Finalization needs attention because the coordination PR does not contain a Sandcastle coordination manifest.",
+    );
+  }
+
+  if (
+    coordinationPullRequest.baseBranch !== undefined &&
+    coordinationPullRequest.baseBranch !== manifest.targetBranch
+  ) {
+    return reportAndReturnNeedsAttention(
+      options.ports,
+      { ...reportFacts, manifest },
+      "coordination-pr-target-branch-mismatch",
+      `Integration Finalization needs attention because the coordination PR base branch ${coordinationPullRequest.baseBranch} does not match the manifest target branch ${manifest.targetBranch}.`,
     );
   }
 
