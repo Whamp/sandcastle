@@ -284,6 +284,7 @@ export interface CoordinateImplementationExecutionOptions {
 
 export interface CoordinateImplementationVerificationOptions {
   readonly commands?: readonly string[];
+  readonly cwd?: string;
   readonly env?: Record<string, string>;
 }
 
@@ -862,7 +863,7 @@ export function coordinateImplementation(
   });
   const verifier = factories.verifier({
     commands: verificationCommands,
-    cwd,
+    cwd: options.verification?.cwd,
     env: options.verification?.env,
   });
   const pullRequests = factories.pullRequests({

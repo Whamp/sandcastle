@@ -1,3 +1,6 @@
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { AgentProvider } from "./AgentProvider.js";
 import type { SandboxProvider } from "./SandboxProvider.js";
@@ -186,7 +189,10 @@ describe("public coordinateImplementation", () => {
         maxReviewRounds: 4,
         logging: { type: "stdout" },
       },
-      verification: { commands: ["npm run typecheck", "npm test"] },
+      verification: {
+        commands: ["npm run typecheck", "npm test"],
+        cwd: "/verification-workdir",
+      },
       pr: { draft: true, baseBranch: "release" },
       adapterFactories: factories,
     });
@@ -195,9 +201,51 @@ describe("public coordinateImplementation", () => {
       "backlog:18:19+20:Whamp/sandcastle:/repo",
       "workspace:/repo:develop:coord/18:task:upstream",
       "agent:worker:reviewer:custom-sandbox:3:2:stdout",
-      "verifier:npm run typecheck+npm test:/repo",
+      "verifier:npm run typecheck+npm test:/verification-workdir",
       "pr:release:true:Whamp/sandcastle:/repo",
     ]);
+  });
+
+  it("runs verification commands in task and coordinator workspaces when top-level cwd is configured", async () => {
+    const originalCheckout = await mkdtemp(join(tmpdir(), "sandcastle-repo-"));
+    const taskWorkspacePath = await mkdtemp(join(tmpdir(), "sandcastle-task-"));
+    const coordinatorWorkspacePath = await mkdtemp(
+      join(tmpdir(), "sandcastle-coordinator-"),
+    );
+
+    const result = await coordinateImplementation({
+      parentIssue: 18,
+      agent: fakeAgent("worker"),
+      cwd: originalCheckout,
+      verification: { commands: ["pwd"] },
+      adapterFactories: {
+        backlog: () => successfulPorts([]).backlog,
+        workspace: () => ({
+          createCoordinatorWorkspace: async () => ({
+            path: coordinatorWorkspacePath,
+            branch: "sandcastle/coordinator/18",
+          }),
+          createTaskWorkspace: async () => ({
+            path: taskWorkspacePath,
+            branch: "sandcastle/task/19",
+          }),
+          mergeTaskIntoCoordinator: async () => ({ merged: true }),
+          hasIntegratedChanges: async () => true,
+          pushCoordinatorBranch: async () => {},
+        }),
+        agentRunner: () => successfulPorts([]).agentRunner!,
+        pullRequests: () => successfulPorts([]).pullRequests,
+      },
+    });
+
+    const taskCommand = result.completedTasks[0]?.verification?.commands?.[0];
+    const coordinatorCommand = result.coordinatorVerification?.commands?.[0];
+    expect(taskCommand?.cwd).toBe(taskWorkspacePath);
+    expect(taskCommand?.stdout.trim()).toBe(taskWorkspacePath);
+    expect(coordinatorCommand?.cwd).toBe(coordinatorWorkspacePath);
+    expect(coordinatorCommand?.stdout.trim()).toBe(coordinatorWorkspacePath);
+    expect(taskCommand?.cwd).not.toBe(originalCheckout);
+    expect(coordinatorCommand?.cwd).not.toBe(originalCheckout);
   });
 
   it("keeps runImplementationCoordination available for fake-port core tests", async () => {

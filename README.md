@@ -134,7 +134,7 @@ console.log(result.pullRequest?.url ?? result.noPullRequestReason);
 console.log(result.mergeRecommendation);
 ```
 
-By default this uses GitHub Issues in the current repo, host execution through `noSandbox()`, `npm run typecheck` verification, a generated coordinator branch/worktree, and a GitHub PR publisher targeting `main`. Configure explicit child issue numbers, reviewer agent, execution provider, verification commands, PR draft/base branch, repo, cwd, and branch settings when needed:
+By default this uses GitHub Issues in the current repo, host execution through `noSandbox()`, `npm run typecheck` verification, a generated coordinator branch/worktree, and a GitHub PR publisher targeting `main`. Configure explicit child issue numbers, reviewer agent, execution provider, verification commands, PR draft/base branch, repo, cwd, and branch settings when needed. Top-level `cwd` identifies the checkout used by GitHub/repo/worktree adapters; verification commands still run in each task or coordinator worktree by default. Set `verification.cwd` only when you intentionally want to override the command working directory.
 
 ```typescript
 import { noSandbox } from "@ai-hero/sandcastle/sandboxes/no-sandbox";
@@ -156,6 +156,7 @@ const result = await coordinateImplementation({
   },
   verification: {
     commands: ["npm run typecheck", "npm test"],
+    // cwd: "/custom/verification/dir", // optional override
   },
   pr: {
     draft: true,
