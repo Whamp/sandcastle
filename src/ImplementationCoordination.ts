@@ -339,6 +339,7 @@ export interface ImplementationCoordinationPullRequestFactoryOptions {
   readonly cwd?: string;
   readonly repo?: string;
   readonly env?: Record<string, string>;
+  readonly targetBranch?: string;
   readonly baseBranch?: string;
   readonly draft?: boolean;
 }
@@ -908,6 +909,7 @@ export function coordinateImplementation(
   const pullRequests = factories.pullRequests({
     cwd,
     repo,
+    targetBranch,
     baseBranch: prBaseBranch,
     draft: options.pr?.draft ?? false,
   });

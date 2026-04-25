@@ -66,6 +66,55 @@ export {
   TaskClaimConflictError,
 } from "./ImplementationCoordination.js";
 export { renderImplementationCoordinationReport } from "./ImplementationCoordinationReport.js";
+export { runIntegrationFinalization } from "./IntegrationFinalization.js";
+export {
+  finalizeIntegration,
+  GitHubIntegrationFinalizationBacklogAdapter,
+  GitHubIntegrationFinalizationLandingProofAdapter,
+  GitHubIntegrationFinalizationPullRequestAdapter,
+  GitHubIntegrationFinalizationReporterAdapter,
+} from "./GitHubIntegrationFinalization.js";
+export type {
+  GitHubIntegrationFinalizationAdapterOptions,
+  GitHubIntegrationFinalizationOptions,
+  GitHubIntegrationFinalizationPullRequestInput,
+} from "./GitHubIntegrationFinalization.js";
+export type {
+  AcceptedForIntegrationTaskState,
+  AtomicIntegrationFinalizationDecision,
+  IntegrationFinalizationBacklogPort,
+  IntegrationFinalizationCoordinationPullRequest,
+  IntegrationFinalizationCoordinationPullRequestComment,
+  IntegrationFinalizationCoordinationPullRequestPort,
+  IntegrationFinalizationLandingProofPort,
+  IntegrationFinalizationOptions,
+  IntegrationFinalizationOutcome,
+  IntegrationFinalizationPorts,
+  IntegrationFinalizationPullRequestRef,
+  IntegrationFinalizationReason,
+  IntegrationFinalizationReport,
+  IntegrationFinalizationReportCoordinationPullRequest,
+  IntegrationFinalizationReporterPort,
+  IntegrationFinalizationResult,
+  MarkDoneOutcome,
+  TargetBranchLandingProofOptions,
+  TargetBranchLandingProofResult,
+} from "./IntegrationFinalization.js";
+export {
+  COORDINATION_MANIFEST_KIND,
+  COORDINATION_MANIFEST_VERSION,
+  parseCoordinationManifest,
+  parseCoordinationManifestFromBody,
+  renderCoordinationManifest,
+  upsertCoordinationManifest,
+} from "./CoordinationManifest.js";
+export type {
+  CoordinationManifest,
+  CoordinationManifestAcceptedTask,
+  CoordinationManifestParentScope,
+  CoordinationManifestPublication,
+  RenderCoordinationManifestOptions,
+} from "./CoordinationManifest.js";
 export { GitHubImplementationPullRequestAdapter } from "./GitHubImplementationPullRequestAdapter.js";
 export type { GitHubImplementationPullRequestAdapterOptions } from "./GitHubImplementationPullRequestAdapter.js";
 export {
